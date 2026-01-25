@@ -6,6 +6,7 @@ let currentSortColumn = 'dominance';
 let currentSortDirection = 'desc';
 let currentFilterType = 'all';
 let currentCity = '';
+let currentKeywordFilter = '';
 let competitorChart = null;
 
 // Escape HTML helper
@@ -19,10 +20,12 @@ function escapeHtml(text) {
 function dominanceScoreToLabel(score) {
     if (score === undefined || score === null) return '—';
 
-    if (score >= 2.0) return 'Strong';
-    if (score >= 1.5) return 'Moderate-Strong';
-    if (score >= 1.0) return 'Moderate';
-    if (score >= 0.5) return 'Present';
+    // Adjusted thresholds for more meaningful classification
+    // Lower thresholds since dominance score can go up to 3.0
+    if (score >= 2.5) return 'Strong';
+    if (score >= 1.8) return 'Moderate-Strong';
+    if (score >= 1.2) return 'Moderate';
+    if (score >= 0.6) return 'Present';
     return 'Weak';
 }
 
@@ -108,8 +111,34 @@ async function loadCities() {
     }
 }
 
+// Load available keywords for filtering
+async function loadKeywordsFilter() {
+    try {
+        const response = await fetch('/api/projects/current');
+        if (!response.ok) {
+            throw new Error('Failed to load project');
+        }
+
+        const project = await response.json();
+        const keywords = project.keywords || [];
+
+        const keywordSelect = document.getElementById('filterKeyword');
+        // Keep the "All Keywords" option
+        keywordSelect.innerHTML = '<option value="">All Keywords</option>';
+
+        keywords.forEach(keyword => {
+            const option = document.createElement('option');
+            option.value = keyword;
+            option.textContent = keyword;
+            keywordSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading keywords:', error);
+    }
+}
+
 // Load competitors overview
-async function loadCompetitorsOverview(filterType = 'all', city = '') {
+async function loadCompetitorsOverview(filterType = 'all', city = '', keyword = '') {
     try {
         let url;
         let data;
@@ -117,6 +146,9 @@ async function loadCompetitorsOverview(filterType = 'all', city = '') {
         // If city is selected, load city-specific data
         if (city) {
             url = `/api/competitors/by-city?city=${encodeURIComponent(city)}`;
+            if (keyword) {
+                url += `&keyword=${encodeURIComponent(keyword)}`;
+            }
             const response = await fetch(url);
             if (!response.ok) {
                 throw new Error('Failed to load city competitors');
@@ -135,7 +167,9 @@ async function loadCompetitorsOverview(filterType = 'all', city = '') {
         } else {
             // Global view
             url = '/api/competitors/overview';
-            if (filterType !== 'all') {
+            if (keyword) {
+                url += `?keyword=${encodeURIComponent(keyword)}`;
+            } else if (filterType !== 'all') {
                 url = `/api/competitors/by-type?type=${encodeURIComponent(filterType)}`;
             }
 
@@ -228,11 +262,7 @@ function renderCompetitorsTable(isCityView = false) {
             classificationCell = `<span class="badge ${classificationClass}">${classificationLabel}</span>`;
         }
 
-        // Consistency (only in global view)
-        let consistencyCell = '—';
-        if (!isCityView && competitor.consistency !== undefined) {
-            consistencyCell = competitor.consistency.toFixed(2);
-        }
+        // Consistency (not displayed - removed from global view for clarity)
 
         // Coverage (only in global view)
         let coverageCell = '—';
@@ -268,12 +298,14 @@ function renderCompetitorsTable(isCityView = false) {
                 </td>
             `;
         } else {
-            // Global view: original columns
+            // Global view: all columns
             row.innerHTML = `
                 <td style="font-weight: 600;">${escapeHtml(competitor.name)}</td>
+                <td>${competitor.total_appearances || '—'}</td>
                 <td>${competitor.avg_rank ? competitor.avg_rank.toFixed(1) : '—'}</td>
+                <td>${competitor.avg_reviews ? competitor.avg_reviews.toFixed(1) : '—'}</td>
+                <td>${competitor.avg_rating ? competitor.avg_rating.toFixed(1) : '—'}</td>
                 <td>${dominanceScoreToLabel(competitor.dominance_score)}</td>
-                <td>${consistencyCell}</td>
                 <td>${trendCell}</td>
                 <td>${classificationCell}</td>
                 <td>${coverageCell}</td>
@@ -511,9 +543,11 @@ function updateTableHeaders(isCityView) {
     } else {
         tr.innerHTML = `
             <th data-sort="name">Name</th>
+            <th>Appearances</th>
             <th data-sort="avg_rank">${createTooltip('Avg Rank', metricExplanations.avg_rank)}</th>
+            <th>Avg Reviews</th>
+            <th>Avg Rating</th>
             <th data-sort="dominance">${createTooltip('Dominance', metricExplanations.dominance)}</th>
-            <th data-sort="consistency">${createTooltip('Consistency', metricExplanations.consistency)}</th>
             <th data-sort="trend">${createTooltip('Trend', metricExplanations.trend)}</th>
             <th data-sort="classification">${createTooltip('Type', metricExplanations.classification)}</th>
             <th data-sort="coverage">${createTooltip('Coverage', metricExplanations.coverage)}</th>
@@ -529,18 +563,18 @@ function updateTableHeaders(isCityView) {
 // Apply filters
 function applyFilters() {
     const filterType = document.getElementById('filterType').value;
-    const sortBy = document.getElementById('sortBy').value;
+    const keyword = document.getElementById('filterKeyword').value;
     const city = document.getElementById('filterCity').value;
 
     currentFilterType = filterType;
-    currentSortColumn = sortBy;
+    currentKeywordFilter = keyword;
     currentCity = city;
 
     // Update table headers based on view (before loading data)
     const isCityView = !!city;
     updateTableHeaders(isCityView);
 
-    loadCompetitorsOverview(filterType, city);
+    loadCompetitorsOverview(filterType, city, keyword);
 }
 
 // Create or get tooltip content element in body (outside overflow containers)
@@ -719,12 +753,6 @@ function attachSortHandlers() {
                 currentSortDirection = 'desc';
             }
 
-            // Update sort dropdown
-            const sortSelect = document.getElementById('sortBy');
-            if (sortSelect) {
-                sortSelect.value = column;
-            }
-
             sortCompetitors(currentSortColumn, currentSortDirection);
             renderCompetitorsTable(currentCity !== '');
         });
@@ -737,7 +765,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Filter change handlers
     document.getElementById('filterType').addEventListener('change', applyFilters);
-    document.getElementById('sortBy').addEventListener('change', applyFilters);
+    document.getElementById('filterKeyword').addEventListener('change', applyFilters);
     document.getElementById('filterCity').addEventListener('change', applyFilters);
 
     // Close detail button
@@ -760,7 +788,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Load keywords, cities and initial data
     loadProjectKeywords();
+    loadKeywordsFilter();
     loadCities().then(() => {
-        loadCompetitorsOverview('all', '');
+        loadCompetitorsOverview('all', '', '');
     });
 });

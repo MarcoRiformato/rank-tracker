@@ -1,0 +1,142 @@
+{
+  "searchParameters": {
+    "q": "ristrutturazione bagno",
+    "gl": "it",
+    "hl": "it",
+    "uule": "w+CAIQICIjNDUuNjc4MDQzOTQ3NzQ1NjIsOS4wMTkwMzYzNjcyNzkwMzQ=",
+    "type": "places",
+    "num": 10,
+    "page": 1,
+    "location": "45.67804394774562,9.019036367279034",
+    "engine": "google"
+  },
+  "places": [
+    {
+      "position": 1,
+      "title": "Ristrutturazioni & Assistenza H24 Roma \u2013 Idraulico, Elettricista, Caldaie & Clima",
+      "address": "Via Francesco Paciotti, 3, 00176 Roma RM",
+      "latitude": 41.8797248,
+      "longitude": 12.5369653,
+      "rating": 4.9,
+      "ratingCount": 111,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "324 745 0444",
+      "website": "https://edilalbaristrutturazioni.it/",
+      "cid": "2028088059572163997"
+    },
+    {
+      "position": 2,
+      "title": "Ristrutturazione bagno Roma | Delma Ristrutturazioni",
+      "rating": 5,
+      "ratingCount": 11,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "389 915 1954",
+      "website": "https://www.ristrutturazioniediliroma.com/",
+      "cid": "13588746229538090704"
+    },
+    {
+      "position": 3,
+      "title": "Bagni Aquos | Esperti nella Ristrutturazione Bagno e Sostituzione Vasca / Doccia",
+      "address": "C/o Centro Commerciale i Granai, Via Mario Rigamonti, 100, 00142 Roma RM",
+      "latitude": 41.8369267,
+      "longitude": 12.503633700000002,
+      "rating": 5,
+      "ratingCount": 12,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "800 090 227",
+      "website": "https://www.bagniaquos.it/",
+      "cid": "17501237603594886351"
+    },
+    {
+      "position": 4,
+      "title": "Acori Ceramiche ed Arredo Bagno",
+      "address": "Via degli Angeli, 140, 00175 Roma RM",
+      "latitude": 41.871952,
+      "longitude": 12.5426092,
+      "rating": 4.9,
+      "ratingCount": 331,
+      "category": "Fornitore di materiali da costruzione",
+      "phoneNumber": "06 241 7606",
+      "website": "https://www.ceramicheacori.it/",
+      "cid": "10057776835922544382"
+    },
+    {
+      "position": 5,
+      "title": "Ristrutturazione Bagno Milano",
+      "address": "Via Padova, 64, 20131 Milano MI",
+      "latitude": 45.4911481,
+      "longitude": 9.2235731,
+      "rating": 5,
+      "ratingCount": 84,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "02 9475 0860",
+      "website": "https://ristrutturazionibagnimirino.it/",
+      "cid": "2629407672222661216"
+    },
+    {
+      "position": 6,
+      "title": "Ristrutturare Casa",
+      "address": "Via Fabio Rulliano, 11, 00175 Roma RM",
+      "latitude": 41.858484499999996,
+      "longitude": 12.5601872,
+      "rating": 4.7,
+      "ratingCount": 32,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "06 5297 8448",
+      "website": "https://www.ristrutturarecasa.it/",
+      "cid": "15112830691391230989"
+    },
+    {
+      "position": 7,
+      "title": "Ditta Ristrutturazioni Viozzi Costantino",
+      "address": "Via Giosu\u00e8 Carducci, 26, 00013 Fonte Nuova RM",
+      "latitude": 41.9953833,
+      "longitude": 12.613292399999999,
+      "rating": 5,
+      "ratingCount": 22,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "330 753 727",
+      "cid": "3117530005377079062"
+    },
+    {
+      "position": 8,
+      "title": "GM Tecnoedil",
+      "address": "Via del Torraccio, 147, 00133 Roma RM",
+      "latitude": 41.850406899999996,
+      "longitude": 12.653722799999999,
+      "rating": 4.9,
+      "ratingCount": 379,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "331 376 8409",
+      "website": "https://www.gmtecnoedil.it/",
+      "cid": "16857703183052089761"
+    },
+    {
+      "position": 9,
+      "title": "Battarelli Group | Ristrutturazione e progettazione di interni ed esterni a 360\u00b0",
+      "address": "Via Flavio Stilicone, 240, 00175 Roma RM",
+      "latitude": 41.8587682,
+      "longitude": 12.5613584,
+      "rating": 5,
+      "ratingCount": 52,
+      "category": "Impresa edile",
+      "phoneNumber": "351 831 6223",
+      "website": "https://www.battarelligroup.it/",
+      "cid": "4240763995673085928"
+    },
+    {
+      "position": 10,
+      "title": "Ristruttura Casa",
+      "address": "Via Tiburtina, 1094, 00156 Roma RM",
+      "latitude": 41.9326376,
+      "longitude": 12.588340599999999,
+      "rating": 4.9,
+      "ratingCount": 44,
+      "category": "Arredo bagno",
+      "phoneNumber": "06 9023 9189",
+      "website": "https://www.ristruttura.casa/",
+      "cid": "16007981643664678990"
+    }
+  ],
+  "credits": 1
+}

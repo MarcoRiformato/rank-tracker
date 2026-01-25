@@ -1,0 +1,140 @@
+{
+  "searchParameters": {
+    "q": "ristrutturazione tetto",
+    "gl": "it",
+    "hl": "it",
+    "uule": "w+CAIQICIjNDUuNjQ2NTEyNDE2MjE0MDksOS4wMTkwMzYzNjcyNzkwMzQ=",
+    "type": "places",
+    "num": 10,
+    "page": 1,
+    "location": "45.64651241621409,9.019036367279034",
+    "engine": "google"
+  },
+  "places": [
+    {
+      "position": 1,
+      "title": "Ristrutturazioni & Assistenza H24 Roma \u2013 Idraulico, Elettricista, Caldaie & Clima",
+      "address": "Via Francesco Paciotti, 3, 00176 Roma RM",
+      "latitude": 41.8797248,
+      "longitude": 12.5369653,
+      "rating": 4.9,
+      "ratingCount": 111,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "324 745 0444",
+      "website": "https://edilalbaristrutturazioni.it/",
+      "cid": "2028088059572163997"
+    },
+    {
+      "position": 2,
+      "title": "EuroTetto S.r.l. - Ristrutturazione e Rifacimento Tetti",
+      "address": "Via Ciamarella, 31/6, 10098 Rivoli TO",
+      "latitude": 45.0838758,
+      "longitude": 7.510049,
+      "rating": 4.8,
+      "ratingCount": 51,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "347 261 4223",
+      "website": "https://eurotetto.com/",
+      "cid": "10557225525216489694"
+    },
+    {
+      "position": 3,
+      "title": "Impresa Edile Roma - Studio Tecnico Mariani",
+      "address": "Piazza delle Peonie, 3A, 00172 Roma RM",
+      "latitude": 41.8825007,
+      "longitude": 12.5655819,
+      "rating": 4.9,
+      "ratingCount": 177,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "391 307 2708",
+      "website": "https://www.studio-tecnico-mariani.it/",
+      "cid": "16089452062336685001"
+    },
+    {
+      "position": 4,
+      "title": "GM Tecnoedil",
+      "address": "Via del Torraccio, 147, 00133 Roma RM",
+      "latitude": 41.850406899999996,
+      "longitude": 12.653722799999999,
+      "rating": 4.9,
+      "ratingCount": 379,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "331 376 8409",
+      "website": "https://www.gmtecnoedil.it/",
+      "cid": "16857703183052089761"
+    },
+    {
+      "position": 5,
+      "title": "Ristrutturazioni Roma | Tecno Habitat 2000",
+      "rating": 5,
+      "ratingCount": 1,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "351 207 3314",
+      "website": "https://www.ristrutturazioniediliroma.eu/",
+      "cid": "5610199400222976115"
+    },
+    {
+      "position": 6,
+      "title": "Ediltetto Gruppo Di Stasio S.r.l.s",
+      "address": "Via Ritiro, 19, 80012 Calvizzano NA",
+      "latitude": 40.9045838,
+      "longitude": 14.1944415,
+      "rating": 4.9,
+      "ratingCount": 14,
+      "category": "Impresa edile",
+      "phoneNumber": "081 376 3990",
+      "website": "http://ediltetto.net/",
+      "cid": "10056512944574293733"
+    },
+    {
+      "position": 7,
+      "title": "SVR Ristrutturazioni Roma",
+      "address": "si riceve solo su appuntamento, Via Alberto Ascari, 239, 00142 Roma RM",
+      "latitude": 41.834434099999996,
+      "longitude": 12.503074999999999,
+      "rating": 5,
+      "ratingCount": 78,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "339 497 2833",
+      "website": "https://svrristrutturazioni.it/",
+      "cid": "17604322036803141190"
+    },
+    {
+      "position": 8,
+      "title": "Rifacimenti tetti Como Ristrutturazione Edile General Cover Como",
+      "rating": 3.7,
+      "ratingCount": 10,
+      "category": "Costruttore di tetti",
+      "phoneNumber": "031 734043",
+      "website": "https://www.generalcover.it/contatti/",
+      "cid": "16310523332839503286"
+    },
+    {
+      "position": 9,
+      "title": "RD Ristrutturazioni",
+      "address": "Via della Costituzione, 47, 00015 Monterotondo RM",
+      "latitude": 42.0529187,
+      "longitude": 12.6214368,
+      "rating": 5,
+      "ratingCount": 1,
+      "category": "Servizi di ristrutturazione",
+      "phoneNumber": "06 9291 5462",
+      "website": "https://rdristrutturazioni.com/",
+      "cid": "42583178626390663"
+    },
+    {
+      "position": 10,
+      "title": "EdilFly Srl",
+      "address": "Via Nomentana, 314, 00141 Roma RM",
+      "latitude": 41.9306304,
+      "longitude": 12.527594299999999,
+      "rating": 4.6,
+      "ratingCount": 36,
+      "category": "Impresa di costruzioni",
+      "phoneNumber": "800 589 646",
+      "website": "http://www.edilfly.com/",
+      "cid": "17697320643557635477"
+    }
+  ],
+  "credits": 1
+}

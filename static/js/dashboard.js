@@ -67,11 +67,16 @@ async function loadDashboardData() {
         const aggResponse = await fetch(aggUrl);
         const aggData = await aggResponse.json();
 
-        // Update summary cards with SEO metrics
-        document.getElementById('top3Coverage').textContent = aggData.top3_coverage ? `${aggData.top3_coverage.toFixed(1)}%` : '0%';
-        document.getElementById('top10Coverage').textContent = aggData.top10_coverage ? `${aggData.top10_coverage.toFixed(1)}%` : '0%';
-        document.getElementById('localPackPresence').textContent = aggData.local_pack_presence ? `${aggData.local_pack_presence.toFixed(1)}%` : '0%';
-        document.getElementById('avgRank').textContent = aggData.avg_rank ? aggData.avg_rank.toFixed(1) : '—';
+        // Update summary cards with SEO metrics (always have content to prevent card collapse)
+        const top3Text = aggData.top3_coverage !== undefined && aggData.top3_coverage !== null ? `${aggData.top3_coverage.toFixed(1)}%` : '0%';
+        const top10Text = aggData.top10_coverage !== undefined && aggData.top10_coverage !== null ? `${aggData.top10_coverage.toFixed(1)}%` : '0%';
+        const localPackText = aggData.local_pack_presence !== undefined && aggData.local_pack_presence !== null ? `${aggData.local_pack_presence.toFixed(1)}%` : '0%';
+        const avgRankText = aggData.avg_rank !== undefined && aggData.avg_rank !== null ? aggData.avg_rank.toFixed(1) : '—';
+
+        document.getElementById('top3Coverage').textContent = top3Text;
+        document.getElementById('top10Coverage').textContent = top10Text;
+        document.getElementById('localPackPresence').textContent = localPackText;
+        document.getElementById('avgRank').textContent = avgRankText;
 
         // Load scheduled scans
         const scheduledResponse = await fetch('/api/scheduled-scans');
@@ -303,7 +308,7 @@ function renderFilteredPointsTable(points) {
 
     if (points.length === 0) {
         const row = document.createElement('tr');
-        row.innerHTML = '<td colspan="5" class="text-center text-slate-400 py-4">No points found</td>';
+        row.innerHTML = '<td colspan="6" class="text-center text-slate-400 py-4">No points found</td>';
         tbody.appendChild(row);
         return;
     }
@@ -334,8 +339,8 @@ function renderFilteredPointsTable(points) {
         const pointCount = cityPoints.length;
         const keywordCount = new Set(cityPoints.map(p => p.keyword)).size;
         headerRow.innerHTML = `
-            <td colspan="5" style="padding: 12px 8px;">
-                📍 ${escapeHtml(city)} 
+            <td colspan="6" style="padding: 12px 8px;">
+                📍 ${escapeHtml(city)}
                 <span style="font-weight: normal; opacity: 0.8; margin-left: 8px;">
                     (${pointCount} ${pointCount === 1 ? 'point' : 'points'}, ${keywordCount} ${keywordCount === 1 ? 'keyword' : 'keywords'})
                 </span>
@@ -356,11 +361,14 @@ function renderFilteredPointsTable(points) {
             // Show coordinates for location (city is in header)
             const locationText = `${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}`;
 
+            const displayBadge = getRankBadge(point.display_rank);
+
             row.innerHTML = `
                 <td class="text-sm" style="padding-left: 24px;">${escapeHtml(locationText)}</td>
                 <td>${escapeHtml(point.keyword || '—')}</td>
                 <td>${localPackBadge}</td>
                 <td>${organicBadge}</td>
+                <td>${displayBadge}</td>
                 <td>${date.toLocaleDateString()}</td>
             `;
 

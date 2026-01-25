@@ -1,0 +1,65 @@
+{
+  "searchParameters": {
+    "q": "ristrutturazione bagno",
+    "gl": "it",
+    "hl": "it",
+    "uule": "w+CAIQICIjNDUuNjQ2NTEyNDE2MjE0MDksOS4wODEyMTg5MjAzNDQ2NTc=",
+    "type": "places",
+    "num": 10,
+    "page": 1,
+    "location": "45.64651241621409,9.081218920344657",
+    "engine": "google"
+  },
+  "places": [
+    {
+      "position": 1,
+      "title": "Ristrutturazione Bagno Milano",
+      "address": "Via Padova, 64, 20131 Milano MI",
+      "latitude": 45.4911481,
+      "longitude": 9.2235731,
+      "rating": 5,
+      "ratingCount": 84,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "02 9475 0860",
+      "website": "https://ristrutturazionibagnimirino.it/",
+      "cid": "2629407672222661216"
+    },
+    {
+      "position": 2,
+      "title": "Ristrutturazione bagni Torino",
+      "rating": 5,
+      "ratingCount": 8,
+      "category": "Impresa edile",
+      "phoneNumber": "011 072 1465",
+      "website": "https://www.ristrutturazionebagnitorino.it/",
+      "cid": "8651763613112449202"
+    },
+    {
+      "position": 3,
+      "title": "BAGNI ITALIANI",
+      "address": "Via Orbetello, 54D, 10148 Torino TO",
+      "latitude": 45.105996399999995,
+      "longitude": 7.675634499999999,
+      "rating": 3.6,
+      "ratingCount": 917,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "011 224 8034",
+      "website": "https://www.bagnitaliani.it/",
+      "cid": "5336598739040456941"
+    },
+    {
+      "position": 4,
+      "title": "Bagno No Problem \ufe0f\u00ae\ufe0f",
+      "address": "Via dei Caduti, 27/2, 33019 Tricesimo UD",
+      "latitude": 46.164497,
+      "longitude": 13.2109627,
+      "rating": 5,
+      "ratingCount": 65,
+      "category": "Ristrutturatore di bagni",
+      "phoneNumber": "329 853 7237",
+      "website": "http://www.bagnonoproblem.com/",
+      "cid": "9603541510749563729"
+    }
+  ],
+  "credits": 1
+}

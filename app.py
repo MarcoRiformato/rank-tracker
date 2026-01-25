@@ -516,6 +516,35 @@ def check_rankings_dummy(point, business_name, keyword):
         'status': status
     }
 
+def normalize_competitor_name(name):
+    """
+    Normalize competitor names for deduplication.
+    Removes dots, pipes, dashes, special characters; normalizes spacing.
+
+    Example:
+    "CLA.VI. Ristrutturazioni | Saronno" -> "CLAVI RISTRUTTURAZIONI SARONNO"
+    "Cla. Vi. Ristrutturazioni" -> "CLAVI RISTRUTTURAZIONI"
+
+    Args:
+        name (str): Original competitor name
+
+    Returns:
+        str: Normalized name for comparison
+    """
+    if not name:
+        return name
+
+    normalized = name.strip()
+    normalized = normalized.upper()
+    # Remove dots, pipes, dashes
+    normalized = normalized.replace('.', '').replace('|', '').replace('-', ' ')
+    # Keep only alphanumeric and spaces
+    normalized = ''.join(c for c in normalized if c.isalnum() or c.isspace())
+    # Remove extra spaces
+    normalized = ' '.join(normalized.split())
+
+    return normalized
+
 def find_business_in_organic(organic_results, business_names):
     """
     Find business in organic results (tries all business name variations)
@@ -602,11 +631,12 @@ def extract_competitors_from_local_pack(local_pack_results, rank_offset=0):
         # Extract rating (could be rating or rating_stars)
         rating = result.get('rating') or result.get('rating_stars')
         
-        # Extract reviews (multiple possible field names)
-        reviews = (result.get('reviews') or 
-                  result.get('review_count') or 
+        # Extract reviews (multiple possible field names from different API formats)
+        reviews = (result.get('reviews') or
+                  result.get('review_count') or
                   result.get('reviews_count') or
-                  result.get('reviewCount'))
+                  result.get('reviewCount') or
+                  result.get('ratingCount'))  # Serper.dev places endpoint uses ratingCount
         
         # Extract address if available (for local pack results)
         address = result.get('address', '')
@@ -1501,19 +1531,31 @@ def competitors_overview():
     project_id = session.get('project_id')
     if not project_id:
         return jsonify({'error': 'No project selected'}), 400
-    
+
+    keyword = request.args.get('keyword', '')
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    
-    # Get all unique competitors for this project
-    # Join competitor_snapshots with scan_points and scans to filter by project
-    c.execute('''
-        SELECT DISTINCT cs.competitor_name
-        FROM competitor_snapshots cs
-        INNER JOIN scan_points sp ON cs.scan_point_id = sp.id
-        INNER JOIN scans s ON sp.scan_id = s.id
-        WHERE s.project_id = ?
-    ''', (project_id,))
+
+    # Build query with optional keyword filter
+    if keyword:
+        c.execute('''
+            SELECT DISTINCT cs.competitor_name
+            FROM competitor_snapshots cs
+            INNER JOIN scan_points sp ON cs.scan_point_id = sp.id
+            INNER JOIN scans s ON sp.scan_id = s.id
+            WHERE s.project_id = ? AND sp.keyword = ?
+        ''', (project_id, keyword))
+    else:
+        # Get all unique competitors for this project
+        # Join competitor_snapshots with scan_points and scans to filter by project
+        c.execute('''
+            SELECT DISTINCT cs.competitor_name
+            FROM competitor_snapshots cs
+            INNER JOIN scan_points sp ON cs.scan_point_id = sp.id
+            INNER JOIN scans s ON sp.scan_id = s.id
+            WHERE s.project_id = ?
+        ''', (project_id,))
 
     competitor_names = [row[0] for row in c.fetchall()]
 
@@ -1524,13 +1566,20 @@ def competitors_overview():
         c.execute('SELECT DISTINCT competitor_name FROM competitor_snapshots WHERE competitor_name NOT LIKE "Competitor %"')
         competitor_names = [row[0] for row in c.fetchall()]
         print(f"[DEBUG] Found {len(competitor_names)} competitors via fallback")
-    
+
     # Get total number of unique scan points (for coverage calculation)
-    c.execute('''
-        SELECT COUNT(DISTINCT sp.id) FROM scan_points sp
-        INNER JOIN scans s ON sp.scan_id = s.id
-        WHERE s.project_id = ?
-    ''', (project_id,))
+    if keyword:
+        c.execute('''
+            SELECT COUNT(DISTINCT sp.id) FROM scan_points sp
+            INNER JOIN scans s ON sp.scan_id = s.id
+            WHERE s.project_id = ? AND sp.keyword = ?
+        ''', (project_id, keyword))
+    else:
+        c.execute('''
+            SELECT COUNT(DISTINCT sp.id) FROM scan_points sp
+            INNER JOIN scans s ON sp.scan_id = s.id
+            WHERE s.project_id = ?
+        ''', (project_id,))
     total_scan_points = c.fetchone()[0] or 1
     conn.close()
     
@@ -1785,27 +1834,44 @@ def competitors_by_city():
     project_id = session.get('project_id')
     if not project_id:
         return jsonify({'error': 'No project selected'}), 400
-    
+
     city = request.args.get('city')
     if not city:
         return jsonify({'error': 'City parameter required'}), 400
-    
+
+    keyword = request.args.get('keyword', '')
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    
-    # Get unique competitors for this city
-    c.execute('''
+
+    # Get unique competitors for this city (and keyword if provided)
+    query = '''
         SELECT DISTINCT competitor_name FROM competitor_history
         WHERE project_id = ? AND city = ?
-    ''', (project_id, city))
-    
+    '''
+    params = [project_id, city]
+
+    if keyword:
+        query += ' AND keyword = ?'
+        params.append(keyword)
+
+    c.execute(query, params)
+
     competitor_names = [row[0] for row in c.fetchall()]
     
     competitors_data = []
     for competitor_name in competitor_names:
+        # Build query for this competitor - include keyword filter if provided
+        where_clause = 'WHERE project_id = ? AND competitor_name = ? AND city = ?'
+        where_params = [project_id, competitor_name, city]
+
+        if keyword:
+            where_clause += ' AND keyword = ?'
+            where_params.append(keyword)
+
         # Get aggregate stats for this city only
-        c.execute('''
-            SELECT 
+        c.execute(f'''
+            SELECT
                 COUNT(*) as total_appearances,
                 AVG(rank) as avg_rank,
                 AVG(review_count) as avg_reviews,
@@ -1819,20 +1885,20 @@ def competitors_by_city():
                 MAX(website) as website,
                 MAX(category) as category
             FROM competitor_history
-            WHERE project_id = ? AND competitor_name = ? AND city = ?
-        ''', (project_id, competitor_name, city))
-        
+            {where_clause}
+        ''', where_params)
+
         row = c.fetchone()
-        
+
         # Calculate dominance for this city
-        c.execute('''
-            SELECT 
+        c.execute(f'''
+            SELECT
                 SUM(CASE WHEN rank BETWEEN 1 AND 3 THEN 1 ELSE 0 END) as top3,
                 SUM(CASE WHEN rank BETWEEN 4 AND 10 THEN 1 ELSE 0 END) as top10,
                 COUNT(*) as total
             FROM competitor_history
-            WHERE project_id = ? AND competitor_name = ? AND city = ?
-        ''', (project_id, competitor_name, city))
+            {where_clause}
+        ''', where_params)
         
         dom_row = c.fetchone()
         total = dom_row[2] or 1
@@ -2307,18 +2373,23 @@ def classify_competitor(competitor_name, project_id):
     trend_data = calculate_growth_trend(competitor_name, project_id)
     trend = trend_data['trend']
 
-    if dominance >= 1.5: # Lowered threshold from 2.0
+    # Updated thresholds to match dominanceScoreToLabel in frontend
+    if dominance >= 2.5:
         if trend == 'improving': return "Dominant & Growing"
         if trend == 'declining': return "Dominant & Declining"
         return "Market Leader"
-    
-    if dominance >= 0.8:
+
+    if dominance >= 1.8:
         if trend == 'improving': return "Rising Challenger"
         return "Strong Competitor"
 
+    if dominance >= 1.2:
+        if trend == 'improving': return "Growing Challenger"
+        return "Moderate Competitor"
+
     if trend == 'improving':
         return "Emerging"
-    
+
     return "Minor Competitor"
 
 @app.route('/api/reverse-geocode', methods=['GET'])
@@ -2790,8 +2861,21 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
                 if all_competitors:
                     # Filter for local pack competitors for the snapshot/history
                     local_pack_competitors = [c for c in all_competitors if c.get('type') == 'local_pack']
-                    
+
+                    # Deduplicate competitors within this point's results using normalized names
+                    seen_normalized_names = set()
+                    deduplicated_competitors = []
+
                     for competitor in local_pack_competitors:
+                        normalized = normalize_competitor_name(competitor.get('name', ''))
+
+                        if normalized not in seen_normalized_names:
+                            seen_normalized_names.add(normalized)
+                            deduplicated_competitors.append(competitor)
+                        else:
+                            logger.debug(f"Skipped duplicate competitor: {competitor.get('name')} (normalized: {normalized})")
+
+                    for competitor in deduplicated_competitors:
                         try:
                             # 1. Save to current snapshot
                             c.execute('''
