@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rank Tracker - Competitors</title>
+    
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <script>
+        // Enable dark mode by default
+        document.documentElement.classList.add('dark');
+        tailwind.config = {
+            darkMode: 'class'
+        };
+    </script>
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+        }
+        
+        .card {
+            background: #1e293b;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            padding: 16px;
+            border: 1px solid #334155;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        th {
+            background: #334155;
+            padding: 8px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            border-bottom: 2px solid #475569;
+            cursor: pointer;
+        }
+        
+        th:hover {
+            background: #475569;
+        }
+        
+        td {
+            padding: 8px;
+            border-bottom: 1px solid #334155;
+            font-size: 13px;
+            color: #cbd5e1;
+        }
+        
+        tr:hover {
+            background: #334155;
+            cursor: pointer;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        
+        .badge.falling-giant { background: #ef4444; color: white; }
+        .badge.growing-giant { background: #22c55e; color: white; }
+        .badge.emerging { background: #3b82f6; color: white; }
+        .badge.stable-leader { background: #f59e0b; color: white; }
+        .badge.other { background: #64748b; color: white; }
+        
+        .trend-up { color: #22c55e; }
+        .trend-down { color: #ef4444; }
+        .trend-stable { color: #94a3b8; }
+        
+        input, select, button {
+            background: #334155;
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+        
+        input::placeholder {
+            color: #64748b;
+        }
+        
+        .help-icon {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            line-height: 14px;
+            text-align: center;
+            background: #475569;
+            color: #cbd5e1;
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: help;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        
+        .help-icon:hover {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .tooltip-content {
+            visibility: hidden;
+            position: fixed;
+            background: #1e293b;
+            color: #e2e8f0;
+            text-align: left;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            font-size: 11px;
+            line-height: 1.5;
+            width: 280px;
+            z-index: 99999;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        
+        .tooltip-content::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1e293b transparent transparent transparent;
+        }
+        
+        .tooltip.active .tooltip-content {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        /* Use CSS hover only for desktop - JS handles positioning */
+        @media (hover: hover) {
+            .tooltip:hover .tooltip-content {
+                visibility: visible;
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto px-3 py-4 max-w-7xl">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h1 class="text-2xl font-bold text-white mb-1">🔍 Competitor Intelligence</h1>
+                <p class="text-sm text-slate-400">Track competitors, identify trends, and find opportunities</p>
+            </div>
+            <div class="flex gap-2">
+                <a href="/dashboard" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700">
+                    📊 Dashboard
+                </a>
+                <a href="/" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-600 hover:bg-gray-700">
+                    🗺️ Map
+                </a>
+            </div>
+        </div>
+        
+        <!-- Keywords Display -->
+        <div class="card mb-4" id="keywordsDisplay" style="display: none;">
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-slate-300">📝 Tracked Keywords:</span>
+                <div id="keywordsList" class="flex flex-wrap gap-2">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Help/Info Section -->
+        <div class="card mb-4" style="background: #1e3a5f; border-color: #3b82f6;">
+            <h2 class="text-sm font-semibold mb-3 text-slate-200">📖 Understanding Competitor Metrics</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-300">
+                <div>
+                    <div class="font-semibold mb-1 text-blue-300">Dominance Score (0-3.0)</div>
+                    <div class="mb-2">Measures how well a competitor ranks across all locations. Formula: (Top 3 appearances × 3 + Top 10 appearances × 2 + Top 30 appearances × 1) ÷ Total appearances. Higher = better average positioning.</div>
+                    
+                    <div class="font-semibold mb-1 text-blue-300">Consistency</div>
+                    <div class="mb-2">Standard deviation of ranks. Lower values mean more stable/consistent rankings across locations. A consistency of 2.0 means ranks typically vary by ±2 positions.</div>
+                    
+                    <div class="font-semibold mb-1 text-blue-300">Growth Trend</div>
+                    <div>Compares recent rankings vs older rankings. ↑ Improving = ranks getting better, ↓ Declining = ranks worsening, → Stable = little change.</div>
+                </div>
+                <div>
+                    <div class="font-semibold mb-1 text-blue-300">Classification Types</div>
+                    <div class="mb-2">
+                        <span class="badge falling-giant" style="margin-right: 4px;">Falling Giant</span> High dominance but declining trend<br>
+                        <span class="badge growing-giant" style="margin-right: 4px;">Growing Giant</span> High dominance + improving trend<br>
+                        <span class="badge emerging" style="margin-right: 4px;">Emerging</span> Low dominance but improving + recent appearance<br>
+                        <span class="badge stable-leader" style="margin-right: 4px;">Stable Leader</span> High dominance + stable + consistent top positions
+                    </div>
+                    
+                    <div class="font-semibold mb-1 text-blue-300">Coverage %</div>
+                    <div class="mb-2">Percentage of scanned locations where this competitor appears at least once in the top 30 results.</div>
+                    
+                    <div class="font-semibold mb-1 text-blue-300">Average Rank</div>
+                    <div>Mean ranking position when the competitor appears. Lower = better (1 is best, 30 is worst).</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Filters -->
+        <div class="card mb-4">
+            <h2 class="text-sm font-semibold mb-3 text-slate-300">Filters</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-1">City (Location Analysis)</label>
+                    <select id="filterCity" class="w-full">
+                        <option value="">All Cities (Global View)</option>
+                    </select>
+                    <div class="text-xs text-slate-500 mt-1">Select a city to see detailed competitor rankings in that area</div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-1">Competitor Type</label>
+                    <select id="filterType" class="w-full">
+                        <option value="all">All Competitors</option>
+                        <option value="falling-giant">Falling Giants</option>
+                        <option value="growing-giant">Growing Giants</option>
+                        <option value="emerging">Emerging</option>
+                        <option value="stable-leader">Stable Leaders</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-1">Sort By</label>
+                    <select id="sortBy" class="w-full">
+                        <option value="dominance">Dominance Score</option>
+                        <option value="avg_rank">Average Rank</option>
+                        <option value="coverage">Coverage %</option>
+                        <option value="consistency">Consistency</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Top Competitors Table -->
+        <div class="card mb-4">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-sm font-semibold text-slate-300" id="tableTitle">Top Competitors <span id="cityFilterLabel" class="text-slate-500"></span></h2>
+                <span class="text-xs text-slate-400" id="competitorCount">0 competitors</span>
+            </div>
+            <div style="overflow-x: auto;">
+                <table id="competitorsTable">
+                    <thead id="competitorsTableHead">
+                        <tr>
+                            <th data-sort="name">Name</th>
+                            <th data-sort="appearances">Appearances</th>
+                            <th data-sort="avg_rank">Avg Rank</th>
+                            <th data-sort="avg_reviews">Avg Reviews</th>
+                            <th data-sort="avg_rating">Avg Rating</th>
+                            <th data-sort="dominance">Dominance</th>
+                            <th data-sort="consistency">Consistency</th>
+                            <th data-sort="trend">Trend</th>
+                            <th data-sort="classification">Type</th>
+                            <th data-sort="coverage">Coverage</th>
+                        </tr>
+                    </thead>
+                    <tbody id="competitorsTableBody">
+                        <tr>
+                            <td colspan="10" style="text-align: center; padding: 20px; color: #94a3b8;">Loading competitors...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Selected Competitor Detail Section -->
+        <div id="competitorDetailSection" class="card mb-4" style="display: none;">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-sm font-semibold text-slate-300" id="selectedCompetitorName">Competitor Details</h2>
+                <button id="closeDetailBtn" class="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded">
+                    Close
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <!-- Trend Chart -->
+                <div>
+                    <h3 class="text-xs font-semibold mb-2 text-slate-400">Ranking Trend Over Time</h3>
+                    <canvas id="competitorTrendChart" style="max-height: 250px;"></canvas>
+                </div>
+                
+                <!-- Key Metrics -->
+                <div>
+                    <h3 class="text-xs font-semibold mb-2 text-slate-400">Key Metrics</h3>
+                    <div id="competitorMetrics" class="space-y-2">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Keyword Breakdown -->
+            <div class="mb-4">
+                <h3 class="text-xs font-semibold mb-2 text-slate-400">Performance by Keyword</h3>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Keyword</th>
+                                <th>Avg Rank</th>
+                                <th>Appearances</th>
+                                <th>Unique Locations</th>
+                            </tr>
+                        </thead>
+                        <tbody id="keywordBreakdownBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- City Breakdown -->
+            <div>
+                <h3 class="text-xs font-semibold mb-2 text-slate-400">Performance by City</h3>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>City</th>
+                                <th>Avg Rank</th>
+                                <th>Appearances</th>
+                                <th>Unique Locations</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cityBreakdownBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Change Project Button (Fixed Bottom Right) -->
+    <button id="changeProjectBtn" style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; 
+            padding: 12px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; 
+            cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);">
+        🔄 Change Project
+    </button>
+    
+    <script src="{{ url_for('static', filename='js/competitors.js') }}"></script>
+</body>
+</html>

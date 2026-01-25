@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rank Tracker - Local SEO Heatmap</title>
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Enable dark mode by default
+        document.documentElement.classList.add('dark');
+        tailwind.config = {
+            darkMode: 'class'
+        };
+    </script>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Leaflet Draw CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+
+    <style>
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        .sidebar {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+            min-width: 320px;
+            max-width: 360px;
+            max-height: 96vh;
+            overflow-y: auto;
+            border: 1px solid rgba(51, 65, 85, 0.8);
+            color: #e2e8f0;
+        }
+
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track {
+            background: #0f172a;
+            border-radius: 10px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 10px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #334155;
+        }
+
+        .sidebar-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0;
+        }
+
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #334155, transparent);
+            margin: 12px 0;
+        }
+
+        .section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .spinner {
+            border: 3px solid #f1f5f9;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+            min-height: 28px;
+            padding: 8px;
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .tag-container:focus-within {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .tag:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+        }
+
+        .tag-delete {
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            padding: 0 4px;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            line-height: 1;
+        }
+
+        .tag-delete:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        .tag-input {
+            flex: 1;
+            min-width: 150px;
+            border: none;
+            outline: none;
+            font-size: 12px;
+            color: #e2e8f0;
+            background: transparent;
+        }
+
+        .tag-input::placeholder {
+            color: #64748b;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 15px;
+            border: none;
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn-draw {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 15px;
+            border: none;
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-draw:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-draw:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .slider-container {
+            padding: 12px;
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 8px;
+        }
+
+        .slider-value {
+            display: inline-block;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 5px;
+            background: #e2e8f0;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+        }
+
+        .status-message {
+            padding: 10px;
+            background: #0f172a;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 12px;
+            line-height: 1.5;
+            border: 1px solid #334155;
+        }
+
+        .text-slate-400,
+        .text-slate-500,
+        .text-slate-600 {
+            color: #94a3b8;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <span style="font-size: 28px;">📍</span>
+            <h2>Rank Tracker</h2>
+            <a href="/dashboard" class="btn-primary ml-auto"
+                style="padding: 8px 16px; font-size: 13px; text-decoration: none; display: inline-block;">
+                📊 Dashboard
+            </a>
+        </div>
+
+        <div class="mb-6">
+            <button id="drawRectangleButton" class="btn-draw">
+                📐 Drop Pins on Map
+            </button>
+            <p class="text-xs text-slate-500 text-center mt-2">Click to place pins, then complete polygon</p>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="mb-6">
+            <div class="section-title">
+                <span>🏢</span>
+                <span>Business Name Variations</span>
+                <button id="businessNameSettingsBtn"
+                    class="ml-auto text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded"
+                    style="font-size: 10px; padding: 4px 8px;">
+                    ⚙️ Settings
+                </button>
+            </div>
+            <div class="tag-container">
+                <div id="businessNameTags" class="flex flex-wrap gap-2 flex-1"></div>
+                <input type="text" id="businessNameInput" placeholder="Type and press Enter..." class="tag-input"
+                    style="display: none;">
+            </div>
+            <p class="text-xs text-slate-500 mt-2 ml-1">Click Settings to edit business names</p>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="mb-6">
+            <div class="section-title">
+                <span>🔑</span>
+                <span>Keywords</span>
+                <span class="text-xs text-slate-400 font-normal ml-auto" id="keywordCount">(0/25)</span>
+            </div>
+            <div class="tag-container">
+                <div id="keywordTags" class="flex flex-wrap gap-2 flex-1"></div>
+                <input type="text" id="keywordInput" placeholder="Type and press Enter..." class="tag-input">
+            </div>
+            <p class="text-xs text-slate-500 mt-2 ml-1">Press Enter to add each keyword (max 25)</p>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="mb-6">
+            <div class="section-title">
+                <span>📏</span>
+                <span>Grid Spacing</span>
+            </div>
+            <div class="slider-container">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-medium text-slate-600">Distance</span>
+                    <span class="slider-value"><span id="spacingValue">2.0</span> km</span>
+                </div>
+                <input type="range" id="gridSpacing" min="0.5" max="5" step="0.1" value="2.0">
+            </div>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="mb-6">
+            <div class="section-title">
+                <span>🗺️</span>
+                <span>Saved Polygons</span>
+                <button id="savePolygonBtn" class="ml-auto text-xs bg-green-600 hover:bg-green-700 px-2 py-1 rounded"
+                    style="font-size: 10px; padding: 4px 8px; display: none;">
+                    💾 Save
+                </button>
+            </div>
+            <input type="text" id="polygonNameInput" placeholder="Enter polygon name..."
+                class="w-full px-3 py-2 border border-slate-700 rounded-md bg-slate-800 text-white mb-2"
+                style="display: none;">
+            <div id="savedPolygonsList" class="space-y-2 max-h-32 overflow-y-auto">
+                <!-- Saved polygons will be loaded here -->
+            </div>
+            <p class="text-xs text-slate-500 mt-2 ml-1">Save current polygon or load a previously saved one</p>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <button id="scanButton" class="btn-primary mb-3">
+            🚀 Start Scan
+        </button>
+
+        <button id="cacheScanButton" class="btn-primary mb-3"
+            style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);">
+            📦 Scan with Cached Data Only
+        </button>
+
+        <div class="mb-3" style="border: 1px solid #334155; border-radius: 6px; padding: 8px; background: #0f172a;">
+            <label class="text-xs text-slate-400 mb-2 block">📅 Periodic Scans (Optional)</label>
+            <div class="flex gap-2 mb-2">
+                <select id="periodicFrequency"
+                    class="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
+                    style="font-size: 11px;">
+                    <option value="">None</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+                <input type="date" id="periodicStartDate"
+                    class="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
+                    style="font-size: 11px;">
+            </div>
+            <button id="savePeriodicScanBtn"
+                class="w-full px-3 py-1.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 hidden">
+                💾 Save Periodic Scan
+            </button>
+        </div>
+
+        <div id="loadingSpinner" class="spinner hidden"></div>
+        <div id="statusMessage" class="status-message hidden"></div>
+    </div>
+
+    <!-- Scan Loading Modal -->
+    <div id="scanLoadingModal" class="hidden"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; display: none; align-items: center; justify-content: center;">
+        <div
+            style="background: #1e293b; border-radius: 16px; padding: 32px; border: 1px solid #334155; max-width: 500px; width: 90%; text-align: center;">
+            <div id="scanLoadingSpinner"
+                style="width: 60px; height: 60px; border: 6px solid #334155; border-top: 6px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;">
+            </div>
+            <h3 class="text-xl font-semibold text-white mb-3">Scanning in Progress</h3>
+            <p id="scanLoadingMessage" class="text-slate-300 mb-4">Please wait while we scan locations and calculate
+                city names...</p>
+            <div id="scanProgressBar"
+                style="width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden; margin-bottom: 20px;">
+                <div id="scanProgressFill"
+                    style="height: 100%; background: #3b82f6; width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <p id="scanProgressText" class="text-sm text-slate-400 mb-6">Starting scan...</p>
+
+            <button id="cancelScanBtn"
+                class="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 hover:text-red-300 border border-red-900/50 px-4 py-2 rounded transition-colors mb-6">
+                ⛔ Cancel Scan
+            </button>
+
+            <div id="scanCompleteSection" style="display: none;">
+                <div class="text-green-400 mb-4" style="font-size: 48px;">✓</div>
+                <h4 class="text-lg font-semibold text-white mb-2">Scan Complete!</h4>
+                <p class="text-slate-300 mb-4">Your scan has finished successfully. Click below to view results.</p>
+                <button id="viewResultsBtn" class="btn-primary w-full" style="padding: 12px 24px;">
+                    📊 View Results
+                </button>
+            </div>
+        </div>
+    </div>
+    <style>
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+
+    <!-- Generic Alert/Confirm Modal -->
+    <div id="genericModal" class="hidden"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2500; display: none; align-items: center; justify-content: center;">
+        <div
+            style="background: #1e293b; border-radius: 12px; padding: 32px; border: 1px solid #334155; max-width: 500px; width: 90%;">
+            <h3 id="genericModalTitle" class="text-xl font-semibold text-white mb-4"></h3>
+            <p id="genericModalMessage" class="text-slate-300 mb-6"></p>
+            <div class="flex gap-3" id="genericModalButtons">
+                <!-- Buttons will be inserted here by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal for Business Names -->
+    <div id="businessNameModal" class="hidden"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; display: none; align-items: center; justify-content: center;">
+        <div
+            style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155; max-width: 500px; width: 90%;">
+            <h3 class="text-lg font-semibold text-white mb-4">⚙️ Edit Business Names</h3>
+            <div class="tag-container mb-4">
+                <div id="businessNameTagsModal" class="flex flex-wrap gap-2 flex-1"></div>
+                <input type="text" id="businessNameInputModal" placeholder="Type and press Enter..." class="tag-input">
+            </div>
+            <div class="flex gap-3">
+                <button id="saveBusinessNamesBtn"
+                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                    Save
+                </button>
+                <button id="cancelBusinessNamesBtn"
+                    class="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 text-sm">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Draw JS -->
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+    <!-- Chart.js for history graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- Change Project and Testing Mode Buttons (Fixed Bottom Right) -->
+    <div
+        style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; gap: 10px; flex-direction: column;">
+        <button id="changeProjectBtn" style="padding: 12px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; 
+                cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);">
+            🔄 Change Project
+        </button>
+        <button id="testingModeBtn" style="padding: 12px 20px; background: #f59e0b; color: white; border: none; border-radius: 8px; 
+                cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);">
+            🧪 Testing Mode: <span id="testingModeStatus">OFF</span>
+        </button>
+        <button id="cleanupDummyDataBtn" style="padding: 12px 20px; background: #ef4444; color: white; border: none; border-radius: 8px; 
+                cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);">
+            🗑️ Cleanup Dummy Data
+        </button>
+    </div>
+
+    <!-- Testing Mode Confirmation Modal -->
+    <div id="testingModeModal" class="hidden"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; display: none; align-items: center; justify-content: center;">
+        <div
+            style="background: #1e293b; border-radius: 12px; padding: 32px; border: 1px solid #334155; max-width: 500px; width: 90%;">
+            <h3 class="text-xl font-semibold text-white mb-4">🧪 Enable Testing Mode</h3>
+            <p class="text-slate-300 mb-6">
+                Testing mode will use <strong>fake random data</strong> instead of making real API calls. This allows
+                you to test the interface without using API credits or waiting for real responses.
+            </p>
+            <p class="text-yellow-300 mb-6 text-sm">
+                ⚠️ <strong>Note:</strong> All scan results will be generated randomly and will not reflect actual search
+                rankings.
+            </p>
+            <div class="flex gap-3">
+                <button id="confirmTestingModeBtn"
+                    class="flex-1 px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-semibold">
+                    Enable Testing Mode
+                </button>
+                <button id="cancelTestingModeBtn"
+                    class="flex-1 px-4 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-600 font-semibold">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+
+</html>
