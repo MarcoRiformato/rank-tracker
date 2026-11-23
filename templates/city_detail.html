@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ city_name }} - Rank Tracker</title>
+    
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <script>
+        // Enable dark mode by default
+        document.documentElement.classList.add('dark');
+        tailwind.config = {
+            darkMode: 'class'
+        };
+    </script>
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+        }
+        
+        .card {
+            background: #1e293b;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            padding: 16px;
+            border: 1px solid #334155;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            min-height: 100px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        th {
+            background: #334155;
+            padding: 8px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            border-bottom: 2px solid #475569;
+        }
+        
+        td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #334155;
+        }
+        
+        tr:hover {
+            background: #334155;
+        }
+        
+        .rank-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 11px;
+        }
+        
+        .rank-top3 {
+            background: #10b981;
+            color: white;
+        }
+        
+        .rank-top10 {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .rank-top30 {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .rank-not-found {
+            background: #64748b;
+            color: white;
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <a href="/dashboard" class="text-blue-400 hover:text-blue-300 text-sm mb-2 inline-block">← Back to Dashboard</a>
+                <h1 class="text-3xl font-bold">📍 {{ city_name }}</h1>
+                <p class="text-slate-400 text-sm mt-1">City Performance Overview</p>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card mb-6">
+            <label class="block text-sm font-semibold mb-2">Filter by Keyword</label>
+            <select id="keywordFilter" class="bg-slate-700 text-white px-4 py-2 rounded border border-slate-600 w-full max-w-md">
+                <option value="">All Keywords</option>
+            </select>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="summary-card">
+                <div class="text-sm opacity-80">Total Scans</div>
+                <div class="text-3xl font-bold mt-1" id="totalScans">-</div>
+            </div>
+            <div class="summary-card green">
+                <div class="text-sm opacity-80">Avg Display Rank</div>
+                <div class="text-3xl font-bold mt-1" id="avgRank">-</div>
+            </div>
+            <div class="summary-card yellow">
+                <div class="text-sm opacity-80">Best Rank</div>
+                <div class="text-3xl font-bold mt-1" id="bestRank">-</div>
+            </div>
+            <div class="summary-card purple">
+                <div class="text-sm opacity-80">Keywords Tracked</div>
+                <div class="text-3xl font-bold mt-1" id="keywordCount">-</div>
+            </div>
+        </div>
+
+        <!-- Rank Trends Chart -->
+        <div class="card mb-6">
+            <h2 class="text-xl font-bold mb-4">Rank Trends Over Time</h2>
+            <canvas id="rankTrendsChart" height="80"></canvas>
+        </div>
+
+        <!-- Keyword Performance Table -->
+        <div class="card mb-6">
+            <h2 class="text-xl font-bold mb-4">Keyword Performance</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Avg Rank</th>
+                        <th>Best Rank</th>
+                        <th>Worst Rank</th>
+                        <th>Scan Count</th>
+                    </tr>
+                </thead>
+                <tbody id="keywordPerfTableBody">
+                    <tr>
+                        <td colspan="5" class="text-center text-slate-400">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Historical Scans Table -->
+        <div class="card">
+            <h2 class="text-xl font-bold mb-4">Historical Scans</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Keyword</th>
+                        <th>Coordinates</th>
+                        <th>Local Pack</th>
+                        <th>Organic</th>
+                        <th>Display</th>
+                    </tr>
+                </thead>
+                <tbody id="historicalScansTableBody">
+                    <tr>
+                        <td colspan="6" class="text-center text-slate-400">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/static/js/city_detail.js"></script>
+</body>
+</html>

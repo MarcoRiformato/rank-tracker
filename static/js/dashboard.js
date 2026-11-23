@@ -326,62 +326,96 @@ function renderFilteredPointsTable(points) {
     // Sort cities alphabetically
     const sortedCities = Object.keys(groupedByCity).sort();
 
-    // Render grouped data
+    // Render grouped data as SINGLE ROWS per city
     sortedCities.forEach(city => {
         const cityPoints = groupedByCity[city];
 
-        // Sort points by date (newest first)
-        cityPoints.sort((a, b) => new Date(b.scan_date) - new Date(a.scan_date));
-
-        // Create city header row
-        const headerRow = document.createElement('tr');
-        headerRow.className = 'city-group-header';
+        // Calculate aggregated statistics
         const pointCount = cityPoints.length;
         const keywordCount = new Set(cityPoints.map(p => p.keyword)).size;
-        headerRow.innerHTML = `
-            <td colspan="6" style="padding: 12px 8px;">
-                📍 ${escapeHtml(city)}
-                <span style="font-weight: normal; opacity: 0.8; margin-left: 8px;">
-                    (${pointCount} ${pointCount === 1 ? 'point' : 'points'}, ${keywordCount} ${keywordCount === 1 ? 'keyword' : 'keywords'})
-                </span>
-            </td>
+        const keywords = [...new Set(cityPoints.map(p => p.keyword))].join(', ');
+
+        // Calculate average ranks (only for non-null values)
+        const localPackRanks = cityPoints.filter(p => p.local_pack_rank !== null).map(p => p.local_pack_rank);
+        const organicRanks = cityPoints.filter(p => p.organic_rank !== null).map(p => p.organic_rank);
+        const displayRanks = cityPoints.filter(p => p.display_rank !== null).map(p => p.display_rank);
+
+        const avgLocalPack = localPackRanks.length > 0
+            ? Math.round(localPackRanks.reduce((a, b) => a + b, 0) / localPackRanks.length)
+            : null;
+        const avgOrganic = organicRanks.length > 0
+            ? Math.round(organicRanks.reduce((a, b) => a + b, 0) / organicRanks.length)
+            : null;
+        const avgDisplay = displayRanks.length > 0
+            ? Math.round(displayRanks.reduce((a, b) => a + b, 0) / displayRanks.length)
+            : null;
+
+        // Get most recent date
+        const mostRecentDate = new Date(Math.max(...cityPoints.map(p => new Date(p.scan_date))));
+
+        // Create single aggregated row for this city
+        const row = document.createElement('tr');
+        row.style.cursor = 'pointer';
+        row.className = 'city-group-row';
+
+        const localPackBadge = getRankBadge(avgLocalPack);
+        const organicBadge = getRankBadge(avgOrganic);
+        const displayBadge = getRankBadge(avgDisplay);
+
+        // Trend Calculation
+        // distinct scan dates, sorted descending (newest first)
+        const scanDates = [...new Set(cityPoints.map(p => p.scan_date.split('T')[0]))].sort().reverse();
+
+        let trendBadge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">New</span>';
+
+        if (scanDates.length >= 2) {
+            const latestDate = scanDates[0];
+            const previousDate = scanDates[1];
+
+            const latestPoints = cityPoints.filter(p => p.scan_date.startsWith(latestDate) && p.display_rank !== null);
+            const previousPoints = cityPoints.filter(p => p.scan_date.startsWith(previousDate) && p.display_rank !== null);
+
+            if (latestPoints.length > 0 && previousPoints.length > 0) {
+                const latestAvg = latestPoints.reduce((sum, p) => sum + p.display_rank, 0) / latestPoints.length;
+                const previousAvg = previousPoints.reduce((sum, p) => sum + p.display_rank, 0) / previousPoints.length;
+
+                const diff = previousAvg - latestAvg; // Positive means rank got smaller (better)
+
+                if (diff > 0.1) {
+                    trendBadge = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clip-rule="evenodd"/></svg>
+                        +${diff.toFixed(1)}
+                    </span>`;
+                } else if (diff < -0.1) {
+                    trendBadge = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                        <svg class="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12 13a1 1 0 110 2H7a1 1 0 01-1-1v-5a1 1 0 112 0v2.586l4.293-4.293a1 1 0 011.414 0L16 9.586l4.293-4.293a1 1 0 011.414 1.414l-5 5a1 1 0 01-1.414 0L13 9.414 9.414 13H12z" clip-rule="evenodd"/></svg>
+                        ${diff.toFixed(1)}
+                    </span>`;
+                } else {
+                    trendBadge = '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Stable</span>';
+                }
+            }
+        }
+
+        row.innerHTML = `
+            <td class="text-sm font-semibold">📍 ${escapeHtml(city)} <span style="font-weight: normal; opacity: 0.7; font-size: 11px;">(${pointCount} ${pointCount === 1 ? 'pt' : 'pts'})</span></td>
+            <td style="font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(keywords)}">${escapeHtml(keywords)}</td>
+            <td>${localPackBadge}</td>
+            <td>${organicBadge}</td>
+            <td>${displayBadge}</td>
+            <td>${trendBadge}</td>
+            <td>${mostRecentDate.toLocaleDateString()}</td>
         `;
-        tbody.appendChild(headerRow);
 
-        // Render points for this city
-        cityPoints.forEach(point => {
-            const row = document.createElement('tr');
-            row.style.cursor = 'pointer';
-            row.className = 'city-group-row';
-
-            const localPackBadge = getRankBadge(point.local_pack_rank);
-            const organicBadge = getRankBadge(point.organic_rank);
-            const date = new Date(point.scan_date);
-
-            // Show coordinates for location (city is in header)
-            const locationText = `${point.lat.toFixed(4)}, ${point.lon.toFixed(4)}`;
-
-            const displayBadge = getRankBadge(point.display_rank);
-
-            row.innerHTML = `
-                <td class="text-sm" style="padding-left: 24px;">${escapeHtml(locationText)}</td>
-                <td>${escapeHtml(point.keyword || '—')}</td>
-                <td>${localPackBadge}</td>
-                <td>${organicBadge}</td>
-                <td>${displayBadge}</td>
-                <td>${date.toLocaleDateString()}</td>
-            `;
-
-            // Add click handler to open detail page
-            row.addEventListener('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                const keyword = encodeURIComponent(point.keyword || '');
-                window.location.href = `/point/${point.lat}/${point.lon}/${keyword}`;
-            });
-
-            tbody.appendChild(row);
+        // Add click handler to navigate to city detail page
+        row.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Navigate to the city detail page
+            window.location.href = `/city/${encodeURIComponent(city)}`;
         });
+
+        tbody.appendChild(row);
     });
 }
 

@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rank Tracker - Market Intelligence & Reporting</title>
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- Leaflet Maps -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+    <script>
+        document.documentElement.classList.add('dark');
+        tailwind.config = { darkMode: 'class' };
+    </script>
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+        }
+
+        .card {
+            background: #1e293b;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            padding: 16px;
+            border: 1px solid #334155;
+        }
+
+        .insight-card {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            border-radius: 8px;
+            padding: 16px;
+            color: white;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .insight-card.green { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .insight-card.red { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+        .insight-card.yellow { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+        .insight-card.purple { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); }
+
+        #map {
+            height: 500px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th {
+            background: #334155;
+            padding: 8px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            border-bottom: 2px solid #475569;
+        }
+
+        td {
+            padding: 8px;
+            border-bottom: 1px solid #334155;
+        }
+
+        tr:hover { background: #334155; }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .badge.high { background: #ef4444; color: white; }
+        .badge.medium { background: #f59e0b; color: white; }
+        .badge.low { background: #10b981; color: white; }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen p-4">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+            <h1 style="font-size: 32px; font-weight: bold;">🎯 Local SEO Intelligence</h1>
+            <div style="display: flex; gap: 8px;">
+                <button onclick="location.href='/dashboard'" style="background: #334155; padding: 8px 16px; border-radius: 6px; color: #e2e8f0; cursor: pointer; border: 1px solid #475569;">← Dashboard</button>
+                <button onclick="exportReport()" style="background: #3b82f6; padding: 8px 16px; border-radius: 6px; color: white; cursor: pointer;">📥 Export Report</button>
+            </div>
+        </div>
+
+        <!-- YOUR BUSINESS PERFORMANCE (Feature 2) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">📊 Your Business Performance</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+                <div class="insight-card">
+                    <div style="font-size: 12px; opacity: 0.9;">Top 3 Coverage</div>
+                    <div style="font-size: 28px; font-weight: bold;" id="top3Pct">0%</div>
+                </div>
+                <div class="insight-card green">
+                    <div style="font-size: 12px; opacity: 0.9;">Top 10 Coverage</div>
+                    <div style="font-size: 28px; font-weight: bold;" id="top10Pct">0%</div>
+                </div>
+                <div class="insight-card yellow">
+                    <div style="font-size: 12px; opacity: 0.9;">Local Pack Presence</div>
+                    <div style="font-size: 28px; font-weight: bold;" id="localPackPct">0%</div>
+                </div>
+                <div class="insight-card purple">
+                    <div style="font-size: 12px; opacity: 0.9;">Avg Local Pack Rank</div>
+                    <div style="font-size: 28px; font-weight: bold;" id="avgRank">—</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <h3 style="font-size: 14px; font-weight: bold; margin-bottom: 12px;">✅ Best Performing Locations</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Location</th>
+                                <th>Keyword</th>
+                                <th>Rank</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bestLocations"></tbody>
+                    </table>
+                </div>
+                <div>
+                    <h3 style="font-size: 14px; font-weight: bold; margin-bottom: 12px;">⚠️ Needs Work</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Location</th>
+                                <th>Keyword</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="worstLocations"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- MARKET INSIGHTS (Feature 3) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">🔍 Market Insights</h2>
+
+            <div class="grid grid-cols-1 mb-6">
+                <div style="background: #334155; padding: 16px; border-radius: 6px;">
+                    <h3 style="font-weight: bold; margin-bottom: 12px;">Market Saturation & Opportunity</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Keyword</th>
+                                <th>Saturation</th>
+                                <th>Competitors</th>
+                                <th>Avg per Location</th>
+                                <th>Opportunity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="marketSaturation"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="insight-card red">
+                    <div style="font-size: 12px; opacity: 0.9;">Missing from Locations</div>
+                    <div style="font-size: 28px; font-weight: bold;" id="gapLocations">0</div>
+                    <div style="font-size: 12px; opacity: 0.9; margin-top: 8px;" id="gapPercentage">0% of locations</div>
+                </div>
+                <div>
+                    <h3 style="color: white; font-weight: bold; margin-bottom: 8px;">💡 Key Insights</h3>
+                    <ul id="keyInsights" style="color: #cbd5e1; font-size: 13px;">
+                        <li>Loading insights...</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- KEYWORD PERFORMANCE MATRIX (Feature 5) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">🎯 Keyword Performance Matrix</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Avg Rank</th>
+                        <th>Top 3 Locations</th>
+                        <th>Top 10 Locations</th>
+                        <th>Competitors</th>
+                        <th>Difficulty</th>
+                        <th>Opportunity</th>
+                    </tr>
+                </thead>
+                <tbody id="keywordMatrix"></tbody>
+            </table>
+        </div>
+
+        <!-- GEOGRAPHIC HEATMAP (Feature 6) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">🗺️ Geographic Performance</h2>
+            <div style="margin-bottom: 12px;">
+                <button onclick="loadHeatmap(false)" style="background: #3b82f6; padding: 6px 12px; border-radius: 4px; color: white; cursor: pointer; margin-right: 8px;">Your Business</button>
+                <button onclick="loadHeatmap(true)" style="background: #8b5cf6; padding: 6px 12px; border-radius: 4px; color: white; cursor: pointer;">Competitor Density</button>
+            </div>
+            <div id="map"></div>
+        </div>
+
+        <!-- TRENDING & GROWTH (Feature 7) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">📈 Market Trends</h2>
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
+            </div>
+            <table style="margin-top: 20px;">
+                <thead>
+                    <tr>
+                        <th>Competitor</th>
+                        <th>Appearances</th>
+                        <th>Avg Rank</th>
+                        <th>Best Rank</th>
+                        <th>Consistency</th>
+                    </tr>
+                </thead>
+                <tbody id="topCompetitors"></tbody>
+            </table>
+        </div>
+
+        <!-- HISTORICAL COMPARISON (Feature 9) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">📅 Historical Progress</h2>
+            <div class="chart-container">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
+
+        <!-- GAP ANALYSIS (Feature 10) -->
+        <div class="card mb-6">
+            <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">🔴 Gap Analysis - Where You're Missing</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Location</th>
+                        <th>Keyword</th>
+                        <th>Competitors Present</th>
+                        <th>Recommendation</th>
+                    </tr>
+                </thead>
+                <tbody id="gapAnalysis"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let map = null;
+        let trendChart = null;
+        let historyChart = null;
+
+        async function loadAllData() {
+            console.log('Loading all intelligence data...');
+
+            try {
+                // Load business performance
+                const perfResp = await fetch('/api/business/performance');
+                const perfData = await perfResp.json();
+                updateBusinessPerformance(perfData);
+
+                // Load market insights
+                const insightsResp = await fetch('/api/market/insights');
+                const insightsData = await insightsResp.json();
+                updateMarketInsights(insightsData);
+
+                // Load keyword performance
+                const keyResp = await fetch('/api/keywords/performance');
+                const keyData = await keyResp.json();
+                updateKeywordMatrix(keyData);
+
+                // Load heatmap
+                loadHeatmap(false);
+
+                // Load trends
+                const trendsResp = await fetch('/api/trends/growth');
+                const trendsData = await trendsResp.json();
+                updateTrends(trendsData);
+
+                // Load history
+                const histResp = await fetch('/api/history/comparison');
+                const histData = await histResp.json();
+                updateHistory(histData);
+
+                // Load gaps
+                const gapResp = await fetch('/api/analysis/gaps');
+                const gapData = await gapResp.json();
+                updateGaps(gapData);
+
+            } catch (error) {
+                console.error('Error loading data:', error);
+                alert('Error loading intelligence data');
+            }
+        }
+
+        function updateBusinessPerformance(data) {
+            document.getElementById('top3Pct').textContent = data.top3_coverage_pct + '%';
+            document.getElementById('top10Pct').textContent = data.top10_coverage_pct + '%';
+            document.getElementById('localPackPct').textContent = data.local_pack_presence_pct + '%';
+            document.getElementById('avgRank').textContent = data.avg_local_pack_rank ? data.avg_local_pack_rank.toFixed(1) : '—';
+
+            // Best locations
+            const bestTbody = document.getElementById('bestLocations');
+            bestTbody.innerHTML = data.best_locations.map(loc => `
+                <tr>
+                    <td>${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}</td>
+                    <td>${loc.keyword || '—'}</td>
+                    <td><span class="badge low">${loc.local_pack_rank || '—'}</span></td>
+                </tr>
+            `).join('');
+
+            // Worst locations
+            const worstTbody = document.getElementById('worstLocations');
+            worstTbody.innerHTML = data.worst_locations.map(loc => `
+                <tr>
+                    <td>${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}</td>
+                    <td>${loc.keyword || '—'}</td>
+                    <td><span class="badge red">${loc.local_pack_rank ? '#' + loc.local_pack_rank : 'Missing'}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function updateMarketInsights(data) {
+            // Market saturation
+            const satTbody = document.getElementById('marketSaturation');
+            satTbody.innerHTML = data.market_saturation.map(ms => `
+                <tr>
+                    <td><strong>${ms.keyword}</strong></td>
+                    <td><span class="badge ${ms.saturation_level.toLowerCase()}">${ms.saturation_level}</span></td>
+                    <td>${ms.total_competitors}</td>
+                    <td>${ms.avg_per_location.toFixed(1)}</td>
+                    <td><span class="badge ${ms.opportunity_level === 'High' ? 'low' : ms.opportunity_level === 'Medium' ? 'medium' : 'high'}">${ms.opportunity_level}</span></td>
+                </tr>
+            `).join('');
+
+            // Gap analysis
+            const gap = data.market_gap;
+            document.getElementById('gapLocations').textContent = gap.missing_locations;
+            document.getElementById('gapPercentage').textContent = gap.gap_percentage + '% of locations';
+
+            // Key insights
+            const insights = [];
+            if (gap.gap_percentage > 50) {
+                insights.push('⚠️ You\'re missing from >50% of locations - high priority opportunity');
+            }
+            if (data.market_saturation.some(m => m.saturation_level === 'Low')) {
+                insights.push('💚 Found low-saturation keywords with growth potential');
+            }
+            if (data.market_saturation.some(m => m.saturation_level === 'High')) {
+                insights.push('🔴 Highly competitive keywords detected - may need stronger SEO');
+            }
+
+            document.getElementById('keyInsights').innerHTML = insights.length ?
+                insights.map(i => `<li>${i}</li>`).join('') :
+                '<li>Waiting for more data...</li>';
+        }
+
+        function updateKeywordMatrix(data) {
+            const tbody = document.getElementById('keywordMatrix');
+            tbody.innerHTML = data.keywords.map(kw => `
+                <tr>
+                    <td><strong>${kw.keyword}</strong></td>
+                    <td>${kw.avg_rank ? kw.avg_rank : '—'}</td>
+                    <td>${kw.top3_locations}</td>
+                    <td>${kw.top10_locations}</td>
+                    <td>${kw.competitor_count}</td>
+                    <td>
+                        <div style="width: 100%; background: #334155; border-radius: 4px; height: 20px; overflow: hidden;">
+                            <div style="width: ${Math.min(kw.difficulty_score, 100)}%; background: linear-gradient(90deg, #f59e0b, #ef4444); height: 100%;"></div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="width: 100%; background: #334155; border-radius: 4px; height: 20px; overflow: hidden;">
+                            <div style="width: ${Math.min(kw.opportunity_score, 100)}%; background: linear-gradient(90deg, #10b981, #06b6d4); height: 100%;"></div>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadHeatmap(showCompetitors) {
+            if (!map) {
+                map = L.map('map').setView([45.3156, 8.8563], 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            } else {
+                map.eachLayer(layer => {
+                    if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
+                        map.removeLayer(layer);
+                    }
+                });
+            }
+
+            const url = `/api/heatmap/data?show_competitors=${showCompetitors ? 'true' : 'false'}`;
+            const resp = await fetch(url);
+            const data = await resp.json();
+
+            data.points.forEach(point => {
+                let color, icon;
+
+                if (showCompetitors) {
+                    color = point.density === 'high' ? '#ef4444' : point.density === 'medium' ? '#f59e0b' : '#10b981';
+                    L.circleMarker([point.lat, point.lon], {
+                        radius: 6,
+                        fillColor: color,
+                        color: color,
+                        weight: 2,
+                        opacity: 0.7,
+                        fillOpacity: 0.5
+                    }).bindPopup(`${point.competitor_count} competitors`).addTo(map);
+                } else {
+                    color = point.color === 'green' ? '#10b981' : point.color === 'yellow' ? '#f59e0b' : point.color === 'orange' ? '#f97316' : '#ef4444';
+                    L.circleMarker([point.lat, point.lon], {
+                        radius: 6,
+                        fillColor: color,
+                        color: color,
+                        weight: 2,
+                        opacity: 0.7,
+                        fillOpacity: 0.6
+                    }).bindPopup(`${point.keyword}<br/>Rank: ${point.local_pack_rank || 'Missing'}`).addTo(map);
+                }
+            });
+        }
+
+        function updateTrends(data) {
+            const tbody = document.getElementById('topCompetitors');
+            tbody.innerHTML = data.top_competitors.map(comp => `
+                <tr>
+                    <td><strong>${comp.name}</strong></td>
+                    <td>${comp.appearances}</td>
+                    <td>${comp.avg_rank}</td>
+                    <td>${comp.best_rank}</td>
+                    <td><span class="badge">${Math.abs(comp.worst_rank - comp.best_rank)}</span></td>
+                </tr>
+            `).join('');
+
+            // Chart would go here
+        }
+
+        function updateHistory(data) {
+            if (!data.monthly_history || data.monthly_history.length === 0) return;
+
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            if (historyChart) historyChart.destroy();
+
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.monthly_history.map(m => m.month),
+                    datasets: [{
+                        label: 'Avg Rank',
+                        data: data.monthly_history.map(m => m.avg_rank),
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: true } },
+                    scales: { y: { reverse: true } }
+                }
+            });
+        }
+
+        function updateGaps(data) {
+            const tbody = document.getElementById('gapAnalysis');
+            tbody.innerHTML = data.gaps.map(gap => `
+                <tr>
+                    <td>${gap.lat.toFixed(4)}, ${gap.lon.toFixed(4)}</td>
+                    <td><strong>${gap.keyword}</strong></td>
+                    <td><span class="badge high">${gap.competitors_present}</span></td>
+                    <td>⚠️ Content/Local SEO opportunity</td>
+                </tr>
+            `).join('');
+        }
+
+        function exportReport() {
+            alert('📥 Report export feature coming soon! Will generate PDF with all insights.');
+        }
+
+        // Load everything on page load
+        document.addEventListener('DOMContentLoaded', loadAllData);
+    </script>
+</body>
+</html>

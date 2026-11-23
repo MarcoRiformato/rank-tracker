@@ -1941,6 +1941,11 @@ def competitors():
     """Serve competitors dashboard page"""
     return render_template('competitors.html')
 
+@app.route('/intelligence')
+def intelligence():
+    """Serve market intelligence & reporting page"""
+    return render_template('intelligence.html')
+
 @app.route('/point/<float:lat>/<float:lon>/<path:keyword>')
 def point_detail(lat, lon, keyword):
     """Serve point detail page"""
@@ -2518,6 +2523,133 @@ def delete_dashboard_data():
     except Exception as e:
         return jsonify({'error': f'Database error: {str(e)}'}), 500
 
+@app.route('/city/<path:city_name>')
+def city_detail(city_name):
+    """Render city detail page"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return render_template('project_select.html')
+    
+    return render_template('city_detail.html', city_name=city_name)
+
+@app.route('/api/city/<path:city_name>/data', methods=['GET'])
+def city_data(city_name):
+    """Get all historical data for a specific city"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+    
+    keyword_filter = request.args.get('keyword', '')
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get all historical scans for this city
+    query = '''
+        SELECT lat, lon, keyword, matched_business_name, 
+               local_pack_rank, organic_rank, display_rank, scan_date
+        FROM point_history
+        WHERE project_id = ? AND city = ?
+    '''
+    params = [project_id, city_name]
+    
+    if keyword_filter:
+        query += ' AND keyword = ?'
+        params.append(keyword_filter)
+    
+    query += ' ORDER BY scan_date DESC'
+    
+    c.execute(query, params)
+    rows = c.fetchall()
+    
+    historical_scans = []
+    for row in rows:
+        historical_scans.append({
+            'lat': row[0],
+            'lon': row[1],
+            'keyword': row[2],
+            'matched_business_name': row[3],
+            'local_pack_rank': row[4],
+            'organic_rank': row[5],
+            'display_rank': row[6],
+            'scan_date': row[7]
+        })
+    
+    # Get unique keywords for this city
+    c.execute('''
+        SELECT DISTINCT keyword FROM point_history
+        WHERE project_id = ? AND city = ?
+        ORDER BY keyword ASC
+    ''', (project_id, city_name))
+    keywords = [row[0] for row in c.fetchall()]
+    
+    # Calculate rank trends over time
+    trends_query = '''
+        SELECT DATE(scan_date) as date,
+               AVG(local_pack_rank) as avg_local_pack,
+               AVG(organic_rank) as avg_organic,
+               AVG(display_rank) as avg_display
+        FROM point_history
+        WHERE project_id = ? AND city = ?
+    '''
+    trends_params = [project_id, city_name]
+    
+    if keyword_filter:
+        trends_query += ' AND keyword = ?'
+        trends_params.append(keyword_filter)
+    
+    trends_query += '''
+        GROUP BY DATE(scan_date)
+        ORDER BY date ASC
+    '''
+    
+    c.execute(trends_query, trends_params)
+    trend_rows = c.fetchall()
+    
+    rank_trends = {
+        'dates': [row[0] for row in trend_rows],
+        'avg_local_pack': [float(row[1]) if row[1] else None for row in trend_rows],
+        'avg_organic': [float(row[2]) if row[2] else None for row in trend_rows],
+        'avg_display': [float(row[3]) if row[3] else None for row in trend_rows]
+    }
+    
+    # Calculate keyword performance
+    keyword_perf_query = '''
+        SELECT keyword,
+               AVG(display_rank) as avg_rank,
+               COUNT(*) as scan_count,
+               MIN(display_rank) as best_rank,
+               MAX(display_rank) as worst_rank
+        FROM point_history
+        WHERE project_id = ? AND city = ? AND display_rank IS NOT NULL
+        GROUP BY keyword
+        ORDER BY avg_rank ASC
+    '''
+    
+    c.execute(keyword_perf_query, (project_id, city_name))
+    perf_rows = c.fetchall()
+    
+    keyword_performance = []
+    for row in perf_rows:
+        keyword_performance.append({
+            'keyword': row[0],
+            'avg_rank': round(row[1], 1) if row[1] else None,
+            'scan_count': row[2],
+            'best_rank': row[3],
+            'worst_rank': row[4]
+        })
+    
+    conn.close()
+    
+    return jsonify({
+        'city': city_name,
+        'total_points': len(historical_scans),
+        'keywords': keywords,
+        'historical_scans': historical_scans,
+        'rank_trends': rank_trends,
+        'keyword_performance': keyword_performance
+    })
+
 def is_point_in_polygon(point, polygon):
     """
     Check if a point (lat, lon) is inside a polygon using Ray Casting algorithm.
@@ -2806,7 +2938,7 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
                 
                 # Small delay to avoid rate limiting
                 if not dummy_mode:
-                    time.sleep(0.1)
+                    time.sleep(1.1)  # Increased from 0.1 to 1.1 to respect Nominatim limits (1 req/sec)
             
             all_results.extend(keyword_results)
         
@@ -3404,6 +3536,592 @@ def add_dummy_data(project_id):
     
     conn.commit()
     conn.close()
+
+# ============================================================================
+# NEW FEATURE ENDPOINTS: Local SEO Reporting & Market Intelligence
+# ============================================================================
+
+@app.route('/api/business/performance', methods=['GET'])
+def business_performance():
+    """Feature 2: Your Business Performance Summary"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    keyword_filter = request.args.get('keyword', '')
+
+    # Build query
+    query = '''
+        SELECT
+            COUNT(*) as total_locations,
+            AVG(CASE WHEN local_pack_rank IS NOT NULL THEN local_pack_rank END) as avg_local_pack_rank,
+            AVG(CASE WHEN organic_rank IS NOT NULL THEN organic_rank END) as avg_organic_rank,
+            SUM(CASE WHEN local_pack_rank IS NOT NULL THEN 1 ELSE 0 END) as local_pack_locations,
+            SUM(CASE WHEN organic_rank IS NOT NULL THEN 1 ELSE 0 END) as organic_locations,
+            SUM(CASE WHEN local_pack_rank BETWEEN 1 AND 3 THEN 1 ELSE 0 END) as top3_locations,
+            SUM(CASE WHEN local_pack_rank BETWEEN 1 AND 10 THEN 1 ELSE 0 END) as top10_locations
+        FROM scan_points sp
+        INNER JOIN scans s ON sp.scan_id = s.id
+        WHERE s.project_id = ?
+    '''
+    params = [project_id]
+
+    if keyword_filter:
+        query += ' AND sp.keyword = ?'
+        params.append(keyword_filter)
+
+    c.execute(query, params)
+    row = c.fetchone()
+
+    total_locations = row[0] or 0
+    avg_local_pack = row[1]
+    avg_organic = row[2]
+    local_pack_locations = row[3] or 0
+    organic_locations = row[4] or 0
+    top3_locations = row[5] or 0
+    top10_locations = row[6] or 0
+
+    # Calculate percentages
+    local_pack_pct = round((local_pack_locations / total_locations * 100), 1) if total_locations > 0 else 0
+    organic_pct = round((organic_locations / total_locations * 100), 1) if total_locations > 0 else 0
+    top3_pct = round((top3_locations / total_locations * 100), 1) if total_locations > 0 else 0
+    top10_pct = round((top10_locations / total_locations * 100), 1) if total_locations > 0 else 0
+
+    # Find best and worst performing locations
+    c.execute('''
+        SELECT lat, lon, local_pack_rank, organic_rank, keyword
+        FROM scan_points
+        WHERE scan_id IN (SELECT id FROM scans WHERE project_id = ?)
+        ORDER BY local_pack_rank ASC, organic_rank ASC
+        LIMIT 5
+    ''', (project_id,))
+    best_locations = [{
+        'lat': row[0], 'lon': row[1],
+        'local_pack_rank': row[2],
+        'organic_rank': row[3],
+        'keyword': row[4]
+    } for row in c.fetchall()]
+
+    c.execute('''
+        SELECT lat, lon, local_pack_rank, organic_rank, keyword
+        FROM scan_points
+        WHERE scan_id IN (SELECT id FROM scans WHERE project_id = ?)
+        AND (local_pack_rank IS NULL OR local_pack_rank > 10)
+        ORDER BY local_pack_rank DESC
+        LIMIT 5
+    ''', (project_id,))
+    worst_locations = [{
+        'lat': row[0], 'lon': row[1],
+        'local_pack_rank': row[2],
+        'organic_rank': row[3],
+        'keyword': row[4]
+    } for row in c.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        'total_locations': total_locations,
+        'avg_local_pack_rank': round(avg_local_pack, 1) if avg_local_pack else None,
+        'avg_organic_rank': round(avg_organic, 1) if avg_organic else None,
+        'local_pack_presence_pct': local_pack_pct,
+        'organic_presence_pct': organic_pct,
+        'top3_coverage_pct': top3_pct,
+        'top10_coverage_pct': top10_pct,
+        'local_pack_locations': local_pack_locations,
+        'organic_locations': organic_locations,
+        'best_locations': best_locations,
+        'worst_locations': worst_locations
+    })
+
+@app.route('/api/market/insights', methods=['GET'])
+def market_insights():
+    """Feature 3: Actionable Market Insights"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    keyword_filter = request.args.get('keyword', '')
+
+    # Market Saturation: competitor count by keyword
+    query = '''
+        SELECT
+            sp.keyword,
+            COUNT(DISTINCT ch.competitor_name) as competitor_count,
+            COUNT(DISTINCT sp.id) as location_count
+        FROM scan_points sp
+        INNER JOIN scans s ON sp.scan_id = s.id
+        LEFT JOIN competitor_history ch ON ch.project_id = s.project_id
+            AND ch.keyword = sp.keyword
+        WHERE s.project_id = ?
+    '''
+    params = [project_id]
+
+    if keyword_filter:
+        query += ' AND sp.keyword = ?'
+        params.append(keyword_filter)
+
+    query += ' GROUP BY sp.keyword'
+
+    c.execute(query, params)
+    market_saturation = []
+    for row in c.fetchall():
+        keyword = row[0]
+        competitors = row[1] or 0
+        locations = row[2] or 0
+        avg_competitors_per_location = round(competitors / locations, 1) if locations > 0 else 0
+
+        # Saturation level
+        if avg_competitors_per_location < 5:
+            saturation = 'Low'
+            opportunity = 'High'
+        elif avg_competitors_per_location < 10:
+            saturation = 'Medium'
+            opportunity = 'Medium'
+        else:
+            saturation = 'High'
+            opportunity = 'Low'
+
+        market_saturation.append({
+            'keyword': keyword,
+            'saturation_level': saturation,
+            'opportunity_level': opportunity,
+            'total_competitors': competitors,
+            'avg_per_location': avg_competitors_per_location
+        })
+
+    # Market Gap: locations where client doesn't appear
+    c.execute('''
+        SELECT COUNT(DISTINCT sp.id) FROM scan_points sp
+        INNER JOIN scans s ON sp.scan_id = s.id
+        WHERE s.project_id = ? AND sp.local_pack_rank IS NULL
+    ''', (project_id,))
+    gap_locations = c.fetchone()[0] or 0
+
+    c.execute('''
+        SELECT COUNT(DISTINCT sp.id) FROM scan_points sp
+        INNER JOIN scans s ON sp.scan_id = s.id
+        WHERE s.project_id = ?
+    ''', (project_id,))
+    total_locations = c.fetchone()[0] or 1
+
+    gap_pct = round((gap_locations / total_locations * 100), 1) if total_locations > 0 else 0
+
+    conn.close()
+
+    return jsonify({
+        'market_saturation': market_saturation,
+        'market_gap': {
+            'missing_locations': gap_locations,
+            'total_locations': total_locations,
+            'gap_percentage': gap_pct
+        }
+    })
+
+@app.route('/api/competitors/comparison/<path:competitor_name>', methods=['GET'])
+def competitor_comparison(competitor_name):
+    """Feature 4: Competitor Comparison Tool"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    keyword_filter = request.args.get('keyword', '')
+
+    # Get your business ranks
+    query = '''
+        SELECT sp.keyword, sp.local_pack_rank, sp.organic_rank
+        FROM scan_points sp
+        INNER JOIN scans s ON sp.scan_id = s.id
+        WHERE s.project_id = ?
+    '''
+    params = [project_id]
+
+    if keyword_filter:
+        query += ' AND sp.keyword = ?'
+        params.append(keyword_filter)
+
+    c.execute(query, params)
+    your_ranks = {}
+    for row in c.fetchall():
+        keyword = row[0]
+        if keyword not in your_ranks:
+            your_ranks[keyword] = {'local_pack': [], 'organic': []}
+        if row[1]:
+            your_ranks[keyword]['local_pack'].append(row[1])
+        if row[2]:
+            your_ranks[keyword]['organic'].append(row[2])
+
+    # Calculate averages for your business
+    your_avg = {}
+    for keyword, ranks in your_ranks.items():
+        your_avg[keyword] = {
+            'avg_local_pack': round(sum(ranks['local_pack']) / len(ranks['local_pack']), 1) if ranks['local_pack'] else None,
+            'avg_organic': round(sum(ranks['organic']) / len(ranks['organic']), 1) if ranks['organic'] else None
+        }
+
+    # Get competitor ranks
+    c.execute('''
+        SELECT keyword, AVG(rank) as avg_rank
+        FROM competitor_history
+        WHERE project_id = ? AND competitor_name = ?
+    ''' + (' AND keyword = ?' if keyword_filter else ''),
+    [project_id, competitor_name] + ([keyword_filter] if keyword_filter else []))
+
+    competitor_ranks = {}
+    for row in c.fetchall():
+        competitor_ranks[row[0]] = round(row[1], 1) if row[1] else None
+
+    # Calculate head-to-head
+    comparison = []
+    for keyword in set(list(your_avg.keys()) + list(competitor_ranks.keys())):
+        your_rank = your_avg.get(keyword, {}).get('avg_local_pack')
+        comp_rank = competitor_ranks.get(keyword)
+
+        if your_rank and comp_rank:
+            if your_rank < comp_rank:
+                status = 'Winning'
+            else:
+                status = 'Losing'
+            rank_diff = abs(your_rank - comp_rank)
+        else:
+            status = 'No data'
+            rank_diff = None
+
+        comparison.append({
+            'keyword': keyword,
+            'your_rank': your_rank,
+            'competitor_rank': comp_rank,
+            'head_to_head': status,
+            'rank_difference': rank_diff
+        })
+
+    conn.close()
+
+    return jsonify({
+        'competitor': competitor_name,
+        'comparison': comparison
+    })
+
+@app.route('/api/keywords/performance', methods=['GET'])
+def keyword_performance():
+    """Feature 5: Keyword Performance Matrix"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute('''
+        SELECT DISTINCT keyword FROM scan_points
+        WHERE scan_id IN (SELECT id FROM scans WHERE project_id = ?)
+    ''', (project_id,))
+
+    keywords = [row[0] for row in c.fetchall()]
+    performance = []
+
+    for keyword in keywords:
+        # Your performance for this keyword
+        c.execute('''
+            SELECT
+                AVG(sp.local_pack_rank) as avg_rank,
+                SUM(CASE WHEN sp.local_pack_rank BETWEEN 1 AND 3 THEN 1 ELSE 0 END) as top3_count,
+                SUM(CASE WHEN sp.local_pack_rank BETWEEN 4 AND 10 THEN 1 ELSE 0 END) as top10_count,
+                SUM(CASE WHEN sp.local_pack_rank BETWEEN 11 AND 30 THEN 1 ELSE 0 END) as top30_count,
+                COUNT(DISTINCT sp.id) as total_locations
+            FROM scan_points sp
+            INNER JOIN scans s ON sp.scan_id = s.id
+            WHERE s.project_id = ? AND sp.keyword = ?
+        ''', (project_id, keyword))
+
+        row = c.fetchone()
+        avg_rank = row[0]
+        top3_count = row[1] or 0
+        top10_count = row[2] or 0
+        top30_count = row[3] or 0
+        total_locations = row[4] or 1
+
+        # Competitor count
+        c.execute('''
+            SELECT COUNT(DISTINCT competitor_name) FROM competitor_history
+            WHERE project_id = ? AND keyword = ?
+        ''', (project_id, keyword))
+
+        competitor_count = c.fetchone()[0] or 0
+
+        # Difficulty score (0-100 based on avg rank and competitor count)
+        difficulty = min(100, int((avg_rank or 50) * 2 + (competitor_count / 10)))
+        opportunity = 100 - difficulty
+
+        performance.append({
+            'keyword': keyword,
+            'avg_rank': round(avg_rank, 1) if avg_rank else None,
+            'top3_locations': top3_count,
+            'top10_locations': top10_count,
+            'top30_locations': top30_count,
+            'total_locations': total_locations,
+            'competitor_count': competitor_count,
+            'difficulty_score': difficulty,
+            'opportunity_score': opportunity
+        })
+
+    conn.close()
+
+    return jsonify({'keywords': performance})
+
+@app.route('/api/heatmap/data', methods=['GET'])
+def heatmap_data():
+    """Feature 6: Enhanced Heatmap Data"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    keyword_filter = request.args.get('keyword', '')
+    show_competitors = request.args.get('show_competitors', 'false').lower() == 'true'
+
+    if show_competitors:
+        # Competitor density heatmap
+        c.execute('''
+            SELECT
+                lat, lon,
+                COUNT(DISTINCT competitor_name) as competitor_count,
+                AVG(rank) as avg_competitor_rank
+            FROM competitor_history ch
+            INNER JOIN scan_points sp ON ch.project_id = ? AND sp.keyword = ch.keyword
+            WHERE ch.project_id = ?
+        ''' + (' AND ch.keyword = ?' if keyword_filter else '') + '''
+            GROUP BY lat, lon
+        ''', [project_id, project_id] + ([keyword_filter] if keyword_filter else []))
+
+        points = []
+        for row in c.fetchall():
+            competitor_count = row[2] or 0
+            # Color density based on competitor count
+            if competitor_count < 5:
+                density = 'low'
+            elif competitor_count < 10:
+                density = 'medium'
+            else:
+                density = 'high'
+
+            points.append({
+                'lat': row[0],
+                'lon': row[1],
+                'type': 'competitor_density',
+                'density': density,
+                'competitor_count': competitor_count,
+                'avg_rank': round(row[3], 1) if row[3] else None
+            })
+    else:
+        # Your business performance heatmap
+        c.execute('''
+            SELECT lat, lon, local_pack_rank, organic_rank, keyword
+            FROM scan_points
+            WHERE scan_id IN (SELECT id FROM scans WHERE project_id = ?)
+        ''' + (' AND keyword = ?' if keyword_filter else ''),
+        [project_id] + ([keyword_filter] if keyword_filter else []))
+
+        points = []
+        for row in c.fetchall():
+            local_pack_rank = row[2]
+
+            # Determine performance color
+            if local_pack_rank and local_pack_rank <= 3:
+                performance = 'top3'
+                color = 'green'
+            elif local_pack_rank and local_pack_rank <= 10:
+                performance = 'top10'
+                color = 'yellow'
+            elif local_pack_rank and local_pack_rank <= 30:
+                performance = 'top30'
+                color = 'orange'
+            else:
+                performance = 'no_rank'
+                color = 'red'
+
+            points.append({
+                'lat': row[0],
+                'lon': row[1],
+                'type': 'your_business',
+                'performance': performance,
+                'color': color,
+                'local_pack_rank': local_pack_rank,
+                'organic_rank': row[3],
+                'keyword': row[4]
+            })
+
+    conn.close()
+
+    return jsonify({'points': points})
+
+@app.route('/api/trends/growth', methods=['GET'])
+def trends_growth():
+    """Feature 7: Trending & Growth Metrics"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    keyword_filter = request.args.get('keyword', '')
+
+    # Get recent vs older data
+    c.execute('''
+        SELECT
+            DATE(MAX(scan_date)) as latest_date,
+            AVG(rank) as latest_avg_rank
+        FROM competitor_history
+        WHERE project_id = ?
+    ''' + (' AND keyword = ?' if keyword_filter else ''),
+    [project_id] + ([keyword_filter] if keyword_filter else []))
+
+    row = c.fetchone()
+    latest_date = row[0]
+    latest_avg_rank = row[1]
+
+    # Get trends by competitor (top 10)
+    c.execute('''
+        SELECT
+            competitor_name,
+            COUNT(*) as appearances,
+            AVG(rank) as avg_rank,
+            MIN(rank) as best_rank,
+            MAX(rank) as worst_rank
+        FROM competitor_history
+        WHERE project_id = ?
+    ''' + (' AND keyword = ?' if keyword_filter else '') + '''
+        GROUP BY competitor_name
+        ORDER BY appearances DESC
+        LIMIT 10
+    ''', [project_id] + ([keyword_filter] if keyword_filter else []))
+
+    top_competitors = [{
+        'name': row[0],
+        'appearances': row[1],
+        'avg_rank': round(row[2], 1) if row[2] else None,
+        'best_rank': row[3],
+        'worst_rank': row[4]
+    } for row in c.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        'latest_date': latest_date,
+        'market_avg_rank': round(latest_avg_rank, 1) if latest_avg_rank else None,
+        'top_competitors': top_competitors
+    })
+
+@app.route('/api/export/report', methods=['GET'])
+def export_report():
+    """Feature 8: Export & Reporting - Generate JSON report"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # Get project info
+    c.execute('SELECT name, business_names, keywords FROM projects WHERE id = ?', (project_id,))
+    proj = c.fetchone()
+
+    report = {
+        'generated_at': datetime.now().isoformat(),
+        'project': {
+            'name': proj[0],
+            'business_names': json.loads(proj[1]),
+            'keywords': json.loads(proj[2])
+        },
+        'performance': {},
+        'market': {},
+        'keywords': {}
+    }
+
+    conn.close()
+
+    return jsonify(report)
+
+@app.route('/api/history/comparison', methods=['GET'])
+def history_comparison():
+    """Feature 9: Historical Comparison - Month over month"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # Get data grouped by month
+    c.execute('''
+        SELECT
+            strftime('%Y-%m', scan_date) as month,
+            AVG(CASE WHEN local_pack_rank IS NOT NULL THEN local_pack_rank END) as avg_local_pack,
+            COUNT(DISTINCT id) as scan_count
+        FROM point_history
+        WHERE project_id = ?
+        GROUP BY strftime('%Y-%m', scan_date)
+        ORDER BY month DESC
+        LIMIT 12
+    ''', (project_id,))
+
+    monthly_data = [{
+        'month': row[0],
+        'avg_rank': round(row[1], 1) if row[1] else None,
+        'scan_count': row[2]
+    } for row in c.fetchall()]
+
+    conn.close()
+
+    return jsonify({'monthly_history': monthly_data})
+
+@app.route('/api/analysis/gaps', methods=['GET'])
+def gap_analysis():
+    """Feature 10: Gap Analysis Report"""
+    project_id = session.get('project_id')
+    if not project_id:
+        return jsonify({'error': 'No project selected'}), 400
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # Find locations where you don't appear but competitors do
+    c.execute('''
+        SELECT
+            sp.lat, sp.lon, sp.keyword,
+            COUNT(DISTINCT ch.competitor_name) as competitor_count
+        FROM scan_points sp
+        LEFT JOIN competitor_history ch ON
+            ch.project_id = ? AND ch.keyword = sp.keyword
+        INNER JOIN scans s ON sp.scan_id = s.id
+        WHERE s.project_id = ? AND sp.local_pack_rank IS NULL
+        GROUP BY sp.lat, sp.lon, sp.keyword
+        HAVING COUNT(DISTINCT ch.competitor_name) > 0
+        LIMIT 20
+    ''', (project_id, project_id))
+
+    gaps = [{
+        'lat': row[0],
+        'lon': row[1],
+        'keyword': row[2],
+        'competitors_present': row[3],
+        'gap_type': 'Missing Location'
+    } for row in c.fetchall()]
+
+    conn.close()
+
+    return jsonify({'gaps': gaps})
 
 if __name__ == '__main__':
     init_db()
