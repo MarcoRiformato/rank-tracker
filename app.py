@@ -1,8 +1,6 @@
 import os
 import sqlite3
-import random
 import time
-import hashlib
 import json
 import uuid
 import threading
@@ -13,6 +11,9 @@ from dotenv import load_dotenv
 import requests
 
 load_dotenv()
+
+from rank_tracker.grid import calculate_grid
+from rank_tracker.serp import credentials_configured, fetch_local_rank, normalize_competitor_name
 
 # Configure logging
 logging.basicConfig(
@@ -26,138 +27,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'rank-tracker-secret-key-change-in-production'
+app.secret_key = os.getenv('SECRET_KEY', 'rank-tracker-secret-key-change-in-production')
 
-# API Configuration
-SERPER_API_KEY = os.getenv('SERPER_API_KEY')
-SERPER_API_URL = 'https://google.serper.dev'
-USE_DUMMY_MODE = os.getenv('USE_DUMMY_MODE', 'false').lower() == 'true' or not SERPER_API_KEY
-
-# Log API key status on startup (without exposing full key)
-if SERPER_API_KEY:
-    logger.info(f"SERPER_API_KEY loaded: {len(SERPER_API_KEY)} characters")
-    if len(SERPER_API_KEY) > 10:
-        logger.debug(f"API Key preview: {SERPER_API_KEY[:10]}...")
+if os.getenv('USE_DUMMY_MODE', 'false').lower() == 'true':
+    logger.warning("USE_DUMMY_MODE is on. Scans will not call DataForSEO.")
+elif credentials_configured():
+    logger.info("DataForSEO credentials loaded")
 else:
-    logger.error("SERPER_API_KEY not found in environment variables")
-    logger.warning("Dummy mode will be enabled automatically")
+    logger.error("DATAFORSEO_LOGIN or DATAFORSEO_PASSWORD is missing")
 
 def is_dummy_mode():
-    """Check if dummy mode is enabled (either from env or session)"""
-    # Session override takes precedence over environment variable
-    # This allows toggling dummy mode via UI without restarting the app
+    """Session toggle wins. A missing API password does not turn on fake data."""
     if 'use_dummy_mode' in session:
-        return session.get('use_dummy_mode') == True
-    # Fall back to environment variable
-    return USE_DUMMY_MODE
-
-def cached_api_call(url, payload, headers, timeout=30, cache_only=False):
-    """
-    Cached API call wrapper for serper.dev requests.
-    Checks cache first, makes real API call if cache miss, saves response to cache.
-    Returns: dict (JSON response data)
-    Raises: requests.exceptions.HTTPError for non-2xx status codes
-    """
-    # Create MD5 hash of JSON-serialized payload
-    payload_str = json.dumps(payload, sort_keys=True)
-    payload_hash = hashlib.md5(payload_str.encode()).hexdigest()
-    
-    # Construct cache file path
-    cache_dir = 'cache'
-    os.makedirs(cache_dir, exist_ok=True)
-    cache_path = os.path.join(cache_dir, f'{payload_hash}.json')
-    
-    # Check if cache file exists
-    if os.path.exists(cache_path):
-        # Load from cache
-        with open(cache_path, 'r', encoding='utf-8') as f:
-            cached_data = json.load(f)
-
-        # Check if cached data includes status code (for error responses)
-        if isinstance(cached_data, dict) and '_cached_status' in cached_data:
-            status_code = cached_data['_cached_status']
-            print("🟢 Loaded from Cache")
-            # If it was an error status, raise HTTPError so caller can handle it
-            if status_code >= 400:
-                # Create a mock response object for the exception
-                class MockResponse:
-                    def __init__(self, status):
-                        self.status_code = status
-                mock_response = MockResponse(status_code)
-                raise requests.exceptions.HTTPError(
-                    f"{status_code} Client Error for url: {url}",
-                    response=mock_response
-                )
-            # Return the actual data (remove status metadata)
-            return cached_data.get('data', cached_data)
-
-        print("🟢 Loaded from Cache")
-        return cached_data
-
-    # Cache miss
-    if cache_only:
-        # In cache-only mode, raise an exception instead of making API call
-        raise requests.exceptions.HTTPError(
-            f"Cache miss in cache-only mode for query: {payload.get('q', 'unknown')}",
-            response=None
-        )
-
-    # Cache miss - make real API call
-    # Debug: Check API key before making call
-    api_key = headers.get('X-API-KEY', '')
-    if not api_key:
-        raise ValueError("API key is missing! Check SERPER_API_KEY environment variable.")
-    if len(api_key) < 20:
-        print(f"WARNING: API key seems too short ({len(api_key)} chars). Expected ~40 chars.")
-    
-    response = requests.post(url, json=payload, headers=headers, timeout=timeout)
-    status_code = response.status_code
-    
-    # Cache the response (including error responses for 404 handling)
-    if status_code >= 400:
-        # Cache error responses with status code metadata
-        try:
-            error_data = response.json()
-        except:
-            error_data = {'error': response.text or 'Unknown error'}
-        
-        # Enhanced error logging for 403 errors
-        if status_code == 403:
-            print(f"ERROR: 403 Forbidden - API Authentication Failed")
-            print(f"  URL: {url}")
-            print(f"  API Key present: {bool(api_key)}")
-            print(f"  API Key length: {len(api_key) if api_key else 0}")
-            print(f"  API Key preview: {api_key[:10]}..." if api_key and len(api_key) > 10 else "N/A")
-            print(f"  Error response: {error_data}")
-            print(f"  Check: 1) API key is correct in .env file")
-            print(f"         2) API key has proper permissions")
-            print(f"         3) API key is not expired")
-            print(f"         4) No extra spaces/quotes in .env file")
-        
-        cache_data = {
-            '_cached_status': status_code,
-            'data': error_data
-        }
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, indent=2)
-        print("🔴 Real API Call")
-        # Raise exception for non-2xx responses
-        response.raise_for_status()
-        # This line won't be reached, but included for clarity
-        return None
-    else:
-        # Cache successful responses
-        data = response.json()
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-        print("🔴 Real API Call")
-        return data
+        return session.get('use_dummy_mode') is True
+    return os.getenv('USE_DUMMY_MODE', 'false').lower() == 'true'
 
 # Database setup
 DB_NAME = 'scans.db'
 
 # Job tracker for async scan progress
-# Format: {job_id: {status, progress, completed, total, total_serper_calls, completed_serper_calls, 
+# Format: {job_id: {status, progress, completed, total, total_api_calls, completed_api_calls,
 #                   results, start_time, eta_seconds, error}}
 scan_jobs = {}
 scan_jobs_lock = threading.Lock()
@@ -419,572 +308,6 @@ def init_db():
     
     conn.commit()
     conn.close()
-
-def point_in_polygon(lat, lon, polygon_coords):
-    """
-    Check if a point is inside a polygon using ray casting algorithm
-    polygon_coords: list of [lat, lon] pairs
-    Returns: True if point is inside polygon
-    """
-    if len(polygon_coords) < 3:
-        return False
-    
-    inside = False
-    j = len(polygon_coords) - 1
-    
-    for i in range(len(polygon_coords)):
-        xi, yi = polygon_coords[i]
-        xj, yj = polygon_coords[j]
-        
-        if ((yi > lon) != (yj > lon)) and (lat < (xj - xi) * (lon - yi) / (yj - yi) + xi):
-            inside = not inside
-        j = i
-    
-    return inside
-
-def calculate_grid(bbox, spacing_km, polygon_coords=None):
-    """
-    Calculate grid of GPS coordinates within bounding box or polygon
-    bbox: dict with 'north', 'south', 'east', 'west' keys
-    spacing_km: grid spacing in kilometers
-    polygon_coords: optional list of [lat, lon] pairs defining polygon
-    Returns: list of (lat, lon) tuples, max 100 points
-    """
-    # Approximate degrees per km (rough approximation)
-    # 1 degree latitude ≈ 111 km
-    # 1 degree longitude ≈ 111 km * cos(latitude)
-    lat_center = (bbox['north'] + bbox['south']) / 2
-    lon_deg_per_km = 1 / (111 * abs(lat_center / 90)) if lat_center != 0 else 1/111
-    lat_deg_per_km = 1 / 111
-    
-    spacing_deg_lat = spacing_km * lat_deg_per_km
-    spacing_deg_lon = spacing_km * lon_deg_per_km
-    
-    points = []
-    lat = bbox['south']
-    
-    while lat <= bbox['north']:
-        lon = bbox['west']
-        while lon <= bbox['east']:
-            # If polygon provided, check if point is inside
-            if polygon_coords:
-                if point_in_polygon(lat, lon, polygon_coords):
-                    points.append((lat, lon))
-            else:
-                points.append((lat, lon))
-            lon += spacing_deg_lon
-        lat += spacing_deg_lat
-    
-    # Limit to 100 points
-    if len(points) > 100:
-        # Sample evenly
-        step = len(points) / 100
-        points = [points[int(i * step)] for i in range(100)]
-    
-    return points
-
-def check_rankings_dummy(point, business_name, keyword):
-    """
-    Dummy mode: Return fake random rankings for testing UI
-    Returns: dict with local_pack_rank, organic_rank, display_rank, status
-    """
-    # Simulate: 30% chance of being in top 3, 40% chance of being found, 30% chance not found
-    rand = random.random()
-    
-    if rand < 0.3:
-        # Top 3
-        local_pack_rank = random.randint(1, 3)
-        organic_rank = random.randint(1, 30) if random.random() < 0.7 else None
-    elif rand < 0.7:
-        # Found but not top 3
-        local_pack_rank = random.randint(4, 30) if random.random() < 0.5 else None
-        organic_rank = random.randint(1, 50) if random.random() < 0.8 else None
-    else:
-        # Not found
-        local_pack_rank = None
-        organic_rank = None
-    
-    # Display rank is Local Pack rank (or None if not found)
-    display_rank = local_pack_rank
-    
-    status = 'success'
-    
-    return {
-        'local_pack_rank': local_pack_rank,
-        'organic_rank': organic_rank,
-        'display_rank': display_rank,
-        'status': status
-    }
-
-def normalize_competitor_name(name):
-    """
-    Normalize competitor names for deduplication.
-    Removes dots, pipes, dashes, special characters; normalizes spacing.
-
-    Example:
-    "CLA.VI. Ristrutturazioni | Saronno" -> "CLAVI RISTRUTTURAZIONI SARONNO"
-    "Cla. Vi. Ristrutturazioni" -> "CLAVI RISTRUTTURAZIONI"
-
-    Args:
-        name (str): Original competitor name
-
-    Returns:
-        str: Normalized name for comparison
-    """
-    if not name:
-        return name
-
-    normalized = name.strip()
-    normalized = normalized.upper()
-    # Remove dots, pipes, dashes
-    normalized = normalized.replace('.', '').replace('|', '').replace('-', ' ')
-    # Keep only alphanumeric and spaces
-    normalized = ''.join(c for c in normalized if c.isalnum() or c.isspace())
-    # Remove extra spaces
-    normalized = ' '.join(normalized.split())
-
-    return normalized
-
-def find_business_in_organic(organic_results, business_names):
-    """
-    Find business in organic results (tries all business name variations)
-    Uses position field from Serper.dev API response when available
-    Returns: (rank (1-based), matched_business_name) or (None, None) if not found
-    """
-    if not organic_results or not business_names:
-        return None, None
-    
-    business_names_lower = [name.lower() for name in business_names]
-    
-    for result in organic_results:
-        # Use position field from API response if available, otherwise use enumerate index
-        position = result.get('position')
-        if position is None:
-            # Fallback: find index in list (shouldn't happen with proper API response)
-            position = organic_results.index(result) + 1
-        
-        title = result.get('title', '').lower()
-        snippet = result.get('snippet', '').lower()
-        link = result.get('link', '').lower()
-        
-        # Check if any business name variation appears
-        for i, biz_name_lower in enumerate(business_names_lower):
-            if biz_name_lower in title or biz_name_lower in snippet or biz_name_lower in link:
-                return position, business_names[i]  # Return original case
-    
-    return None, None
-
-def find_business_in_local_pack(local_pack, business_names):
-    """
-    Find business in local pack results (tries all business name variations)
-    For places API results, uses array index (1-based) since position field may be uniform (all 1)
-    Returns: (rank (1-based), matched_business_name) or (None, None) if not found
-    """
-    if not local_pack or not business_names:
-        return None, None
-
-    business_names_lower = [name.lower() for name in business_names]
-
-    # Check if this is a places API result (all positions are 1)
-    # If so, use array index for ranking instead of position field
-    all_positions_one = all(result.get('position') == 1 for result in local_pack if result.get('position') is not None)
-    use_array_index = all_positions_one and len(local_pack) > 1
-
-    for idx, result in enumerate(local_pack, start=1):
-        if use_array_index:
-            # For places API with uniform positions, use array index
-            position = idx
-        else:
-            # Use position field from API response if available, otherwise use enumerate index
-            position = result.get('position')
-            if position is None:
-                position = idx
-
-        title = result.get('title', '').lower() or result.get('name', '').lower()
-        address = result.get('address', '').lower()
-
-        # Check if any business name variation appears
-        for i, biz_name_lower in enumerate(business_names_lower):
-            if biz_name_lower in title or biz_name_lower in address:
-                return position, business_names[i]  # Return original case
-
-    return None, None
-
-def extract_competitors_from_local_pack(local_pack_results, rank_offset=0):
-    """
-    Extract competitor data from local pack API results
-    Handles Serper.dev response format with fields: title, name, rating, reviews, address
-    Returns: list of competitor dicts with name, rank, review_count, rating_stars
-    """
-    competitors = []
-    if not isinstance(local_pack_results, list):
-        return competitors
-    
-    for idx, result in enumerate(local_pack_results, start=1):
-        # Use position field if available, otherwise calculate from index
-        position = result.get('position', idx)
-        rank = rank_offset + position if rank_offset > 0 else position
-        
-        # Extract name (title or name field)
-        title = result.get('title', '') or result.get('name', '')
-        
-        # Extract rating (could be rating or rating_stars)
-        rating = result.get('rating') or result.get('rating_stars')
-        
-        # Extract reviews (multiple possible field names from different API formats)
-        reviews = (result.get('reviews') or
-                  result.get('review_count') or
-                  result.get('reviews_count') or
-                  result.get('reviewCount') or
-                  result.get('ratingCount'))  # Serper.dev places endpoint uses ratingCount
-        
-        # Extract address if available (for local pack results)
-        address = result.get('address', '')
-        phoneNumber = result.get('phoneNumber', '')
-        website = result.get('website', '')
-        category = result.get('category', '')
-        
-        competitors.append({
-            'name': title,
-            'rank': rank,
-            'type': 'local_pack',
-            'review_count': int(reviews) if reviews is not None else None,
-            'rating_stars': float(rating) if rating is not None else None,
-            'address': address,
-            'phone_number': phoneNumber,
-            'website': website,
-            'category': category,
-            'latitude': result.get('latitude'),
-            'longitude': result.get('longitude')
-        })
-    
-    return competitors
-
-def extract_competitors_from_organic(organic_results):
-    """
-    Extract competitor data from organic search results
-    Uses position field from Serper.dev API response when available
-    Returns: list of competitor dicts with name, rank, review_count, rating_stars
-    """
-    competitors = []
-    if not isinstance(organic_results, list):
-        return competitors
-    
-    for idx, result in enumerate(organic_results, start=1):
-        # Use position field from API response if available, otherwise use enumerate index
-        position = result.get('position', idx)
-        title = result.get('title', '')
-        
-        competitors.append({
-            'name': title,
-            'rank': position,  # Use API-provided position
-            'type': 'organic',
-            'review_count': None,  # Organic results typically don't have review data
-            'rating_stars': None
-        })
-    
-    return competitors
-
-def generate_diverse_competitors(point, keyword):
-    """
-    Generate diverse dummy competitor data with realistic business names and varied metrics
-    Returns list of 30 competitors with varied ranks, reviews, ratings
-    """
-    # Realistic Italian business name prefixes and suffixes for ristrutturazioni
-    prefixes = ['Ristrutturazioni', 'Edilizia', 'Ristruttura', 'Casa', 'Renovation', 'Restauro', 'Design']
-    suffixes = ['Saronno', 'Milano', 'Varese', 'Como', 'Bergamo', 'Lombardia', 'Italia', 'Nord', 'Expert', 'Pro', 'Premium', 'Service', 'Group', 'Srl', 'di Rossi', 'di Bianchi', 'di Verdi']
-    
-    # City-based variations
-    cities = ['Saronno', 'Milano', 'Varese', 'Como', 'Bergamo', 'Brescia', 'Novara', 'Pavia', 'Monza', 'Lecco']
-    
-    # Generate 30 diverse competitors
-    competitors = []
-    used_names = set()
-    
-    for rank in range(1, 31):
-        # Vary competitor characteristics based on rank
-        if rank <= 3:
-            # Top 3: High ratings, many reviews, premium names
-            review_count = random.randint(200, 1500) if random.random() > 0.1 else random.randint(50, 200)
-            rating = round(random.uniform(4.2, 5.0), 1) if random.random() > 0.15 else round(random.uniform(3.8, 4.2), 1)
-            prefix = random.choice(['Ristrutturazioni Premium', 'Edilizia Expert', 'Ristruttura Pro'])
-            city = random.choice(cities)
-            name = f"{prefix} {city}"
-        elif rank <= 10:
-            # Top 10: Good ratings, moderate reviews
-            review_count = random.randint(50, 400) if random.random() > 0.2 else random.randint(10, 50)
-            rating = round(random.uniform(3.8, 4.8), 1) if random.random() > 0.25 else round(random.uniform(3.5, 3.8), 1)
-            prefix = random.choice(prefixes)
-            city = random.choice(cities) if random.random() > 0.5 else random.choice(suffixes)
-            name = f"{prefix} {city}"
-        elif rank <= 20:
-            # Middle ranks: Variable ratings, fewer reviews
-            review_count = random.randint(10, 200) if random.random() > 0.3 else random.randint(0, 10)
-            rating = round(random.uniform(3.3, 4.5), 1) if random.random() > 0.35 else round(random.uniform(2.5, 3.3), 1)
-            prefix = random.choice(prefixes)
-            suffix = random.choice(suffixes)
-            name = f"{prefix} {suffix}"
-        else:
-            # Lower ranks: Lower ratings, fewer reviews, some missing data
-            review_count = random.randint(0, 100) if random.random() > 0.4 else None
-            rating = round(random.uniform(2.8, 4.0), 1) if random.random() > 0.45 else None
-            prefix = random.choice(['Ristruttura', 'Edilizia', 'Casa'])
-            suffix = random.choice(suffixes)
-            name = f"{prefix} {suffix}"
-        
-        # Ensure unique names
-        base_name = name
-        counter = 1
-        while name in used_names:
-            name = f"{base_name} {counter}"
-            counter += 1
-        used_names.add(name)
-        
-        # Vary missing data slightly (some competitors don't have reviews/ratings)
-        final_review_count = review_count if random.random() > 0.15 else None
-        final_rating = rating if random.random() > 0.15 and final_review_count else None
-        
-        competitors.append({
-            'name': name,
-            'rank': rank,
-            'type': 'local_pack',
-            'review_count': final_review_count,
-            'rating_stars': final_rating
-        })
-    
-    return competitors
-
-def check_rankings_standard(point, business_names, keyword, dummy_mode=None, cache_only=False):
-    """
-    Request 1: Standard search - Fetch Organic Results and Local Pack (Top 3)
-    business_names: list of business name variations
-    Returns: dict with local_pack_rank (top 3 only), organic_rank, status, matched_business_name
-    """
-    # Use passed parameter if available, otherwise check session
-    use_dummy = dummy_mode if dummy_mode is not None else is_dummy_mode()
-    if use_dummy:
-        result = check_rankings_dummy(point, business_names[0] if business_names else '', keyword)
-        result['matched_business_name'] = business_names[0] if business_names else None
-        # Generate diverse dummy competitors for testing
-        all_competitors_dummy = generate_diverse_competitors(point, keyword)
-        result['all_competitors'] = all_competitors_dummy
-        return result
-    
-    try:
-        lat, lon = point
-        # Use first business name for query (or primary variation)
-        primary_business_name = business_names[0] if business_names else ''
-        query = f"{primary_business_name} {keyword}"
-        
-        # Build payload matching Serper.dev API format exactly
-        # Reference: https://serper.dev/api-reference
-        payload = {
-            'q': query,  # Search query
-            'location': f"{lat},{lon}",  # Format: "lat,lon" for local searches
-            'gl': 'it',  # Country code (geolocation)
-            'hl': 'it',  # Language (host language)
-            'num': 30    # Number of organic results to return
-        }
-        
-        headers = {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json'
-        }
-        
-        data = cached_api_call(
-            f'{SERPER_API_URL}/search',
-            payload,
-            headers,
-            timeout=30,
-            cache_only=cache_only
-        )
-        
-        # Validate API response structure
-        if not isinstance(data, dict):
-            raise ValueError(f"Invalid API response format: expected dict, got {type(data)}")
-        
-        # Extract organic results - Serper.dev returns array of organic results
-        organic_results = data.get('organic', [])
-        if not isinstance(organic_results, list):
-            print(f"Warning: organic results is not a list, got {type(organic_results)}")
-            organic_results = []
-        
-        # Validate organic results structure (each should have 'position' field)
-        for idx, result in enumerate(organic_results):
-            if not isinstance(result, dict):
-                print(f"Warning: organic result at index {idx} is not a dict")
-                continue
-            # Position field should be present in Serper.dev responses
-        
-        organic_rank, matched_organic = find_business_in_organic(organic_results, business_names)
-        
-        # Extract local pack (top 3)
-        # Handle 'places' from /places endpoint, or 'localPack'/'localPackResults' from /search endpoint
-        local_pack = data.get('places', []) or data.get('localPack', []) or data.get('localPackResults', [])
-        matched_local = None
-        all_competitors = []
-        
-        if isinstance(local_pack, list) and len(local_pack) > 0:
-            # Validate local pack structure
-            for idx, result in enumerate(local_pack):
-                if not isinstance(result, dict):
-                    print(f"Warning: local pack result at index {idx} is not a dict")
-                    continue
-            
-            local_pack_top3 = local_pack[:3] if len(local_pack) > 3 else local_pack
-            local_pack_rank, matched_local = find_business_in_local_pack(local_pack_top3, business_names)
-            
-            # Extract all competitors from top 3 local pack
-            all_competitors.extend(extract_competitors_from_local_pack(local_pack_top3, rank_offset=0))
-        else:
-            local_pack_rank = None
-        
-        # Extract competitors from organic results (limit to top 30)
-        organic_competitors = extract_competitors_from_organic(organic_results[:30])
-        all_competitors.extend(organic_competitors)
-        
-        # Use the matched business name from either organic or local pack
-        matched_business_name = matched_local or matched_organic or primary_business_name
-        
-        return {
-            'local_pack_rank': local_pack_rank,
-            'organic_rank': organic_rank,
-            'matched_business_name': matched_business_name,
-            'status': 'success',
-            'all_competitors': all_competitors
-        }
-        
-    except requests.exceptions.RequestException as e:
-        print(f"API Error for point {point}: {str(e)}")
-        return {
-            'local_pack_rank': None,
-            'organic_rank': None,
-            'status': 'error'
-        }
-    except Exception as e:
-        print(f"Unexpected error for point {point}: {str(e)}")
-        return {
-            'local_pack_rank': None,
-            'organic_rank': None,
-            'status': 'error'
-        }
-
-def check_rankings_deep(point, business_names, keyword, dummy_mode=None, cache_only=False):
-    """
-    Request 2: Deep search - Places endpoint to find Local Pack positions 4-30
-    Always called if business not found in top 3 Local Pack
-    Returns: (local_pack_rank (4-30), matched_business_name, all_competitors) or (None, None, [])
-    where all_competitors contains ALL 30 results from local pack
-    """
-    # Use passed parameter if available, otherwise check session
-    use_dummy = dummy_mode if dummy_mode is not None else is_dummy_mode()
-    if use_dummy:
-        # In dummy mode, simulate ALL 30 competitors (1-30) for competitor intelligence
-        all_competitors_dummy = generate_diverse_competitors(point, keyword)
-        # Only return a rank match if this was called because we weren't in top 3
-        # (The caller will decide whether to use the rank or not)
-        if random.random() < 0.3:
-            rank = random.randint(4, 30)
-            return rank, business_names[0] if business_names else None, all_competitors_dummy
-        return None, None, all_competitors_dummy
-    
-    try:
-        lat, lon = point
-        primary_business_name = business_names[0] if business_names else ''
-        # Use keyword-only query to get full competitive local pack results
-        query = keyword
-        
-        # Build payload matching Serper.dev API format exactly
-        payload = {
-            'q': query,
-            'location': f"{lat},{lon}",  # Format: "lat,lon"
-            'gl': 'it',  # Country code (geolocation)
-            'hl': 'it'   # Language (host language)
-        }
-        
-        headers = {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json'
-        }
-        
-        # Try places endpoint if available, otherwise use search with pagination
-        try:
-            data = cached_api_call(
-                f'{SERPER_API_URL}/places',
-                payload,
-                headers,
-                timeout=30,
-                cache_only=cache_only
-            )
-        except requests.exceptions.HTTPError as e:
-            # If places endpoint doesn't exist (404), fall back to search with deeper results
-            if e.response is not None and e.response.status_code == 404:
-                # Add num parameter for search endpoint to get more results
-                payload['num'] = 50
-                data = cached_api_call(
-                    f'{SERPER_API_URL}/search',
-                    payload,
-                    headers,
-                    timeout=30,
-                    cache_only=cache_only
-                )
-            else:
-                # Re-raise if it's not a 404
-                raise
-        
-        # Validate API response structure
-        if not isinstance(data, dict):
-            raise ValueError(f"Invalid API response format: expected dict, got {type(data)}")
-        
-        # Extract local pack (ALL results up to 30)
-        # Handle 'places' from /places endpoint, or 'localPack'/'localPackResults' from /search endpoint
-        local_pack = data.get('places', []) or data.get('localPack', []) or data.get('localPackResults', [])
-        all_competitors = []
-        
-        if isinstance(local_pack, list) and len(local_pack) > 0:
-            # Validate local pack structure
-            for idx, result in enumerate(local_pack):
-                if not isinstance(result, dict):
-                    print(f"Warning: local pack result at index {idx} is not a dict")
-                    continue
-            
-            # Get all results up to 30
-            local_pack_all = local_pack[:30] if len(local_pack) > 30 else local_pack
-            
-            # Extract ALL competitors from local pack (positions 1-30)
-            all_competitors.extend(extract_competitors_from_local_pack(local_pack_all, rank_offset=0))
-            
-            # Check if business is found in positions 4-30
-            if len(local_pack_all) > 3:
-                local_pack_deep = local_pack_all[3:]  # Skip top 3
-                rank, matched = find_business_in_local_pack(local_pack_deep, business_names)
-                if rank:
-                    # Calculate actual rank: if position field exists, use it; otherwise add 3
-                    # Since we're checking positions 4-30, the rank from find_business_in_local_pack
-                    # will be relative to the deep slice, so we need to add 3
-                    actual_rank = rank + 3
-                    return actual_rank, matched, all_competitors
-        
-        return None, None, all_competitors
-        
-    except requests.exceptions.RequestException as e:
-        print(f"Deep search API Error for point {point}: {str(e)}")
-        return None, None, []
-    except Exception as e:
-        print(f"Deep search unexpected error for point {point}: {str(e)}")
-        return None, None, []
-
-def consolidate_ranks(local_pack_rank, organic_rank):
-    """
-    Consolidate ranks: Track both separately, return Local Pack rank for display
-    Returns: dict with local_pack_rank, organic_rank, display_rank
-    """
-    display_rank = local_pack_rank  # Display Local Pack rank on heatmap
-    return {
-        'local_pack_rank': local_pack_rank,
-        'organic_rank': organic_rank,
-        'display_rank': display_rank
-    }
 
 @app.route('/')
 def index():
@@ -2163,65 +1486,42 @@ def testing_mode_status():
     testing_mode = is_dummy_mode()
     return jsonify({'testing_mode': testing_mode})
 
+_city_cache = {}
+
 def reverse_geocode(lat, lon, dummy_mode=None):
-    """Get city/town name from coordinates using Nominatim (OpenStreetMap)"""
-    # In dummy mode, return fake city names without API calls
-    # Use passed parameter if available, otherwise check session
+    """City name from Nominatim. Points within about 100m share one lookup."""
     use_dummy = dummy_mode if dummy_mode is not None else is_dummy_mode()
+    fallback = f"{lat:.4f}, {lon:.4f}"
     if use_dummy:
-        # Return fake city names based on coordinates (for testing)
-        fake_cities = ["Saronno", "Milano", "Varese", "Como", "Bergamo", "Brescia", "Novara", "Pavia"]
-        city_index = int((lat + lon) * 100) % len(fake_cities)
-        return fake_cities[city_index]
-    
+        return fallback
+
+    key = (round(float(lat), 3), round(float(lon), 3))
+    cached = _city_cache.get(key)
+    if cached:
+        return cached
+
     try:
-        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json&addressdetails=1"
-        headers = {'User-Agent': 'RankTracker/1.0'}
-        response = requests.get(url, headers=headers, timeout=5)
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "json", "addressdetails": 1},
+            headers={"User-Agent": "RankTracker/1.0 (local rank grid)"},
+            timeout=5,
+        )
+        time.sleep(1.1)
+        city = fallback
         if response.ok:
-            data = response.json()
-            address = data.get('address', {})
-            # Try to get city, town, village, or neighborhood
-            city = (address.get('city') or address.get('town') or 
-                   address.get('village') or address.get('neighbourhood') or
-                   address.get('suburb') or address.get('municipality'))
-            return city or f"{lat:.4f}, {lon:.4f}"
-        return f"{lat:.4f}, {lon:.4f}"
-    except:
-        return f"{lat:.4f}, {lon:.4f}"
-
-def check_landing_page(city_name, dummy_mode=None, business_website=None):
-    """
-    Check if a landing page exists for the given city name
-    Converts city name to slug and performs HEAD request to check existence
-
-    Args:
-        city_name: City name to check
-        dummy_mode: Override dummy mode setting
-        business_website: Custom business website URL (optional, required for real checks)
-
-    Returns: dict with 'exists' (bool), 'status_code' (int|None), 'url' (str)
-
-    NOTE: This feature requires a configurable business_website parameter.
-    Without it, the function cannot determine the correct landing page URL.
-    If business_website is not provided, this function returns a disabled response.
-    """
-    # DISABLED: This feature requires per-project business website configuration
-    # It was previously hardcoded to 'ristrutturazionisaronno.it' which only works
-    # for one specific business and breaks for all others.
-    #
-    # To use this feature:
-    # 1. Add 'website' field to projects table
-    # 2. Configure each project with its business website
-    # 3. Pass business_website parameter to this function
-    # 4. Remove this disabled check
-
-    return {
-        'exists': False,
-        'status_code': None,
-        'url': None,
-        'error': 'Landing page checking is disabled - requires per-project website configuration'
-    }
+            address = response.json().get("address", {})
+            city = (
+                address.get("city") or address.get("town") or address.get("village")
+                or address.get("municipality") or address.get("suburb")
+                or address.get("neighbourhood") or fallback
+            )
+    except requests.RequestException as exc:
+        logger.warning("Reverse geocode failed for (%s, %s): %s", lat, lon, exc)
+        time.sleep(1.1)
+        city = fallback
+    _city_cache[key] = city
+    return city
 
 def calculate_dominance_score(competitor_name, project_id):
     """
@@ -2650,30 +1950,6 @@ def city_data(city_name):
         'keyword_performance': keyword_performance
     })
 
-def is_point_in_polygon(point, polygon):
-    """
-    Check if a point (lat, lon) is inside a polygon using Ray Casting algorithm.
-    Polygon is a list of (lat, lon) tuples.
-    """
-    if not polygon or len(polygon) < 3:
-        return False
-        
-    x, y = point
-    n = len(polygon)
-    inside = False
-    p1x, p1y = polygon[0]
-    for i in range(n + 1):
-        p2x, p2y = polygon[i % n]
-        if y > min(p1y, p2y):
-            if y <= max(p1y, p2y):
-                if x <= max(p1x, p2x):
-                    if p1y != p2y:
-                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xinters:
-                        inside = not inside
-        p1x, p1y = p2x, p2y
-    return inside
-
 def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbox, polygon_coords, dummy_mode=False, cache_only=False):
     """
     Background function to run scan job with progress tracking
@@ -2681,10 +1957,16 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
     """
     logger.info(f"Scan job started - job_id: {job_id}, project_id: {project_id}")
 
-    # Check if we're in a request context (we shouldn't be in background thread)
-    from flask import has_request_context
-    logger.debug(f"Has request context: {has_request_context()}")
-    logger.debug(f"Dummy mode setting: {dummy_mode}")
+    if not dummy_mode and not cache_only and not credentials_configured():
+        with scan_jobs_lock:
+            job = scan_jobs[job_id]
+            job['status'] = 'error'
+            job['error'] = (
+                'DataForSEO login and password are missing. '
+                'Set DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD in .env.'
+            )
+        logger.error("Scan %s aborted: DataForSEO credentials missing", job_id)
+        return
 
     try:
         with scan_jobs_lock:
@@ -2697,88 +1979,27 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
         total_grid_points = len(grid_points)
         total_keywords = len(keywords)
         total_work_units = total_grid_points * total_keywords
-        total_serper_calls = total_work_units * 2  # Always 2 API calls per point
+        total_api_calls = total_work_units
         
         # Update job with totals
         with scan_jobs_lock:
             job = scan_jobs[job_id]
             job['total'] = total_work_units
-            job['total_serper_calls'] = total_serper_calls
+            job['total_api_calls'] = total_api_calls
             job['total_grid_points'] = total_grid_points
             job['total_keywords'] = total_keywords
-        
-        # If in testing/dummy mode, generate 8 historical scans BEFORE the current scan
-        if dummy_mode:
-            from datetime import timedelta
-            import random as rand_lib
-            
-            conn_dummy = sqlite3.connect(DB_NAME)
-            c_dummy = conn_dummy.cursor()
-            
-            lat_center = (bbox['north'] + bbox['south']) / 2
-            lon_center = (bbox['east'] + bbox['west']) / 2
-            dummy_locations_test = [
-                (lat_center + 0.01, lon_center + 0.01),
-                (lat_center - 0.01, lon_center - 0.01),
-                (lat_center, lon_center + 0.015),
-                (lat_center + 0.015, lon_center)
-            ]
-            
-            today_date = datetime.now()
-            for week_back in range(1, 9):
-                scan_date_dummy = today_date - timedelta(weeks=week_back)
-                date_str_dummy = scan_date_dummy.isoformat()
-                
-                for keyword_dummy in keywords:
-                    primary_business_dummy = ', '.join(business_names[:3])
-                    
-                    c_dummy.execute('''
-                        INSERT INTO scans (project_id, date, business_name, keyword, grid_spacing,
-                                          bbox_north, bbox_east, bbox_south, bbox_west)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (project_id, date_str_dummy, primary_business_dummy, keyword_dummy, grid_spacing,
-                          bbox['north'], bbox['east'], bbox['south'], bbox['west']))
-                    scan_id_dummy = c_dummy.lastrowid
-                    
-                    for lat_dummy, lon_dummy in dummy_locations_test:
-                        base_rank_dummy = 25 - ((week_back - 1) * 2)
-                        local_pack_rank_dummy = rand_lib.randint(1, 3) if base_rank_dummy < 5 else None
-                        organic_rank_dummy = max(1, min(30, base_rank_dummy + rand_lib.randint(-3, 3)))
-                        display_rank_dummy = local_pack_rank_dummy if local_pack_rank_dummy else organic_rank_dummy
-                        
-                        try:
-                            city_dummy = reverse_geocode(lat_dummy, lon_dummy)
-                        except:
-                            city_dummy = f"{lat_dummy:.4f}, {lon_dummy:.4f}"
-                        
-                        try:
-                            c_dummy.execute('''
-                                INSERT INTO point_history (project_id, lat, lon, keyword, business_name, scan_date,
-                                                         local_pack_rank, organic_rank, display_rank,
-                                                         matched_business_name, search_query, city)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (project_id, lat_dummy, lon_dummy, keyword_dummy, primary_business_dummy, date_str_dummy,
-                                  local_pack_rank_dummy, organic_rank_dummy, display_rank_dummy,
-                                  business_names[0] if local_pack_rank_dummy else None,
-                                  f"{primary_business_dummy} {keyword_dummy}", city_dummy))
-                        except sqlite3.OperationalError:
-                            c_dummy.execute('''
-                                INSERT INTO point_history (project_id, lat, lon, keyword, business_name, scan_date,
-                                                         local_pack_rank, organic_rank, display_rank,
-                                                         matched_business_name, search_query)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (project_id, lat_dummy, lon_dummy, keyword_dummy, primary_business_dummy, date_str_dummy,
-                                  local_pack_rank_dummy, organic_rank_dummy, display_rank_dummy,
-                                  business_names[0] if local_pack_rank_dummy else None,
-                                  f"{primary_business_dummy} {keyword_dummy}"))
-            
-            conn_dummy.commit()
-            conn_dummy.close()
+
+        if total_work_units == 0:
+            with scan_jobs_lock:
+                job = scan_jobs[job_id]
+                job['status'] = 'error'
+                job['error'] = 'The area has no grid points. Use a larger area or a smaller spacing.'
+            return
         
         # Track timing for ETA calculation
         times_per_unit = []
         completed = 0
-        completed_serper_calls = 0
+        completed_api_calls = 0
         
         # For each keyword, scan all grid points
         all_results = []
@@ -2789,125 +2010,53 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
                 # Check for cancellation
                 with scan_jobs_lock:
                     if scan_jobs[job_id].get('status') == 'cancelled':
-                        print(f"[INFO] Job {job_id} cancelled during execution.", flush=True)
+                        logger.info("Job %s cancelled during execution", job_id)
                         return
 
                 unit_start = time.time()
 
-                print(f"[DEBUG] Processing point ({lat}, {lon}) for keyword '{keyword}'")
+                logger.debug("Point (%s, %s) keyword %s", lat, lon, keyword)
 
-                # Request 1: Standard search
                 try:
-                    rank_data = check_rankings_standard((lat, lon), business_names, keyword, dummy_mode, cache_only)
-                    logger.debug(f"Standard search completed for {keyword}")
-                    rank_data['status'] = 'success' # tentatively success
+                    rank_data = fetch_local_rank(
+                        lat,
+                        lon,
+                        business_names,
+                        keyword,
+                        grid_spacing=grid_spacing,
+                        dummy_mode=dummy_mode,
+                        cache_only=cache_only,
+                    )
                 except Exception as e:
-                    logger.error(f"Standard search failed for {keyword}: {e}", exc_info=True)
-                    # If standard search fails, we can't proceed with this point
+                    logger.error("Rank check failed for %s at (%s, %s): %s", keyword, lat, lon, e, exc_info=True)
                     rank_data = {
                         'local_pack_rank': None,
                         'organic_rank': None,
                         'status': 'error',
                         'error': str(e),
-                        'all_competitors': []
+                        'all_competitors': [],
                     }
-                
-                completed_serper_calls += 1
-                all_competitors = rank_data.get('all_competitors', [])
-                
-                # Request 2: Deep search (only if standard search didn't fail)
-                if rank_data.get('status') != 'error':
-                    try:
-                        if rank_data.get('local_pack_rank') is None:
-                            deep_rank, matched_deep, deep_competitors = check_rankings_deep((lat, lon), business_names, keyword, dummy_mode, cache_only)
-                            completed_serper_calls += 1
-                            if deep_rank:
-                                rank_data['local_pack_rank'] = deep_rank
-                                if matched_deep:
-                                    rank_data['matched_business_name'] = matched_deep
-                            if deep_competitors:
-                                all_competitors = [c for c in all_competitors if c.get('type') != 'local_pack']
-                                all_competitors.extend(deep_competitors)
-                        else:
-                            _, _, deep_competitors = check_rankings_deep((lat, lon), business_names, keyword, dummy_mode, cache_only)
-                            completed_serper_calls += 1
-                            if deep_competitors:
-                                all_competitors = [c for c in all_competitors if c.get('type') != 'local_pack']
-                                all_competitors.extend(deep_competitors)
-                    except Exception as e:
-                        logger.error(f"Deep search failed for {keyword}: {e}", exc_info=True)
-                        # If deep search fails but standard worked, we keep partial results but mark as warning/partial?
-                        # For now, just log it. status remains 'success' from good standard search, or 'error' if it was already error.
 
-                # Get city name
+                completed_api_calls += 1
+                all_competitors = rank_data.get('all_competitors', [])
+
                 try:
                     city = reverse_geocode(lat, lon, dummy_mode)
-                    logger.debug(f"Reverse geocoded ({lat}, {lon}) to city: {city}")
                 except Exception as e:
                     city = f"{lat:.4f}, {lon:.4f}"
-                    logger.warning(f"Reverse geocode failed for ({lat}, {lon}), using coordinates: {city}")
-                
-                # Check landing page - DISABLED (requires per-project website configuration)
-                # The landing page feature was hardcoded to one business (ristrutturazionisaronno.it)
-                # and doesn't work for other projects. To re-enable:
-                # 1. Add 'website' field to projects table
-                # 2. Configure each project with its business website
-                # 3. Uncomment the code below
-                landing_page_status = {
-                    'exists': False,
-                    'status_code': None,
-                    'url': None,
-                    'error': 'Landing page checking disabled'
-                }
-                
-                # Consolidate ranks
-                consolidated = consolidate_ranks(
-                    rank_data.get('local_pack_rank'),
-                    rank_data.get('organic_rank')
-                )
-                
-                rank_data.update(consolidated)
-                
-                # Refine status based on results
-                # If we had an API error, status is 'error'
-                # If we have no rank but successful API calls, status is 'not_found'
-                # If we have a rank, status is 'success' (default from above)
+                    logger.warning("Reverse geocode failed for (%s, %s): %s", lat, lon, e)
+
+                rank_data['display_rank'] = rank_data.get('local_pack_rank')
                 if rank_data.get('status') != 'error':
-                    if rank_data.get('display_rank'):
-                        rank_data['status'] = 'success'
-                    else:
-                        rank_data['status'] = 'not_found'
+                    rank_data['status'] = 'success' if rank_data.get('display_rank') else 'not_found'
 
                 rank_data['lat'] = lat
                 rank_data['lon'] = lon
                 rank_data['keyword'] = keyword
                 rank_data['city'] = city
-                rank_data['landing_page_exists'] = landing_page_status.get('exists', False)
-                rank_data['landing_page_status_code'] = landing_page_status.get('status_code')
-                rank_data['landing_page_url'] = landing_page_status.get('url')
-
-                # --- GEOFENCING FILTER ---
-                # Filter competitors that are outside the polygon
-                filtered_competitors = []
-                for comp in all_competitors:
-                    try:
-                        c_lat = float(comp.get('latitude')) if comp.get('latitude') else None
-                        c_lng = float(comp.get('longitude')) if comp.get('longitude') else None
-                    except (ValueError, TypeError):
-                        c_lat = None
-                        c_lng = None
-                    
-                    if c_lat and c_lng:
-                        if is_point_in_polygon((c_lat, c_lng), polygon_coords):
-                            filtered_competitors.append(comp)
-                        # else: skip (out of polygon)
-                    else:
-                        # STRICT MODE: If no coords, we cannot verify location.
-                        # Discard it to prevent "Roma" results in "Saronno" scans.
-                        pass
-                        
-                all_competitors = filtered_competitors
-
+                rank_data['landing_page_exists'] = False
+                rank_data['landing_page_status_code'] = None
+                rank_data['landing_page_url'] = None
                 rank_data['all_competitors'] = all_competitors
                 
                 keyword_results.append(rank_data)
@@ -2931,15 +2080,11 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
                     job = scan_jobs[job_id]
                     job['completed'] = completed
                     job['progress'] = (completed / total_work_units) * 100 if total_work_units > 0 else 0
-                    job['completed_serper_calls'] = completed_serper_calls
+                    job['completed_api_calls'] = completed_api_calls
                     job['eta_seconds'] = eta_seconds
                     job['current_keyword'] = keyword
                     job['current_point'] = f"{completed}/{total_work_units}"
                 
-                # Small delay to avoid rate limiting
-                if not dummy_mode:
-                    time.sleep(1.1)  # Increased from 0.1 to 1.1 to respect Nominatim limits (1 req/sec)
-            
             all_results.extend(keyword_results)
         
         # Save to database
@@ -2972,7 +2117,7 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
             
             for _ in grid_points:
                 point = all_results[point_idx]
-                search_query = f"{primary_business_name} {keyword}"
+                search_query = keyword
                 
                 c.execute('''
                     INSERT INTO scan_points (scan_id, lat, lon, local_pack_rank, 
@@ -3008,6 +2153,8 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
                             logger.debug(f"Skipped duplicate competitor: {competitor.get('name')} (normalized: {normalized})")
 
                     for competitor in deduplicated_competitors:
+                        if not (competitor.get('name') or '').strip():
+                            continue
                         try:
                             # 1. Save to current snapshot
                             c.execute('''
@@ -3090,7 +2237,7 @@ def run_scan_job(job_id, project_id, business_names, keywords, grid_spacing, bbo
             job['status'] = 'complete'
             job['progress'] = 100.0
             job['completed'] = total_work_units
-            job['completed_serper_calls'] = total_serper_calls
+            job['completed_api_calls'] = total_api_calls
             job['results'] = response_results
             job['scan_ids'] = scan_ids
             job['eta_seconds'] = 0
@@ -3150,8 +2297,10 @@ def scan_cache_only():
     total_grid_points = len(grid_points)
     total_keywords = len(keywords)
     total_work_units = total_grid_points * total_keywords
-    # Cache-only scans don't make API calls, so serper_calls = 0
-    total_serper_calls = 0
+    if total_work_units == 0:
+        return jsonify({'error': 'The area has no grid points. Use a larger area or a smaller spacing.'}), 400
+
+    total_api_calls = 0
 
     # Create job
     job_id = str(uuid.uuid4())
@@ -3161,8 +2310,8 @@ def scan_cache_only():
             'progress': 0,
             'completed': 0,
             'total': total_work_units,
-            'total_serper_calls': total_serper_calls,
-            'completed_serper_calls': 0,
+            'total_api_calls': total_api_calls,
+            'completed_api_calls': 0,
             'total_grid_points': total_grid_points,
             'total_keywords': total_keywords,
             'results': None,
@@ -3185,7 +2334,7 @@ def scan_cache_only():
     return jsonify({
         'job_id': job_id,
         'total_work_units': total_work_units,
-        'total_serper_calls': total_serper_calls,
+        'total_api_calls': total_api_calls,
         'total_grid_points': total_grid_points,
         'total_keywords': total_keywords,
         'cache_only': True
@@ -3239,7 +2388,14 @@ def scan():
     total_grid_points = len(grid_points)
     total_keywords = len(keywords)
     total_work_units = total_grid_points * total_keywords
-    total_serper_calls = total_work_units * 2
+    if total_work_units == 0:
+        return jsonify({'error': 'The area has no grid points. Use a larger area or a smaller spacing.'}), 400
+    if not is_dummy_mode() and not credentials_configured():
+        return jsonify({
+            'error': 'DataForSEO login and password are missing. Set DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD in .env.'
+        }), 400
+
+    total_api_calls = total_work_units
     
     # Create job
     job_id = str(uuid.uuid4())
@@ -3249,8 +2405,8 @@ def scan():
             'progress': 0,
             'completed': 0,
             'total': total_work_units,
-            'total_serper_calls': total_serper_calls,
-            'completed_serper_calls': 0,
+            'total_api_calls': total_api_calls,
+            'completed_api_calls': 0,
             'total_grid_points': total_grid_points,
             'total_keywords': total_keywords,
             'results': None,
@@ -3275,7 +2431,7 @@ def scan():
     return jsonify({
         'job_id': job_id,
         'total_work_units': total_work_units,
-        'total_serper_calls': total_serper_calls,
+        'total_api_calls': total_api_calls,
         'total_grid_points': total_grid_points,
         'total_keywords': total_keywords
     })
@@ -3328,8 +2484,8 @@ def scan_status():
             'progress': round(job['progress'], 2),
             'completed': job['completed'],
             'total': job['total'],
-            'completed_serper_calls': job.get('completed_serper_calls', 0),
-            'total_serper_calls': job.get('total_serper_calls', 0),
+            'completed_api_calls': job.get('completed_api_calls', 0),
+            'total_api_calls': job.get('total_api_calls', 0),
             'eta_seconds': round(job.get('eta_seconds', 0)) if job.get('eta_seconds') else None,
             'elapsed_seconds': round(elapsed_seconds) if elapsed_seconds else None,
             'current_keyword': job.get('current_keyword'),
@@ -3356,8 +2512,8 @@ def scan_results():
             'results': job['results'],
             'scan_ids': job['scan_ids'],
             'total_work_units': job['total'],
-            'completed_serper_calls': job.get('completed_serper_calls', 0),
-            'total_serper_calls': job.get('total_serper_calls', 0)
+            'completed_api_calls': job.get('completed_api_calls', 0),
+            'total_api_calls': job.get('total_api_calls', 0)
         })
 
 

@@ -70,10 +70,11 @@ C:\Python311\python.exe -m pip install -r requirements.txt
 
    Create a file named `.env` in the project root:
    ```
-   SERPER_API_KEY=your_api_key_here
+   DATAFORSEO_LOGIN=your_login
+   DATAFORSEO_PASSWORD=your_password
    ```
 
-   Or set `USE_DUMMY_MODE=true` to test without API key.
+   Or set `USE_DUMMY_MODE=true` to test without API credentials.
 
 2. **Run the application**:
 

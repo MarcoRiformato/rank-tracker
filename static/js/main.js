@@ -549,12 +549,12 @@ document.getElementById('scanButton').addEventListener('click', async function (
         cancelBtn.style.display = 'inline-block';
 
         const totalWorkUnits = scanData.total_work_units;
-        const totalSerperCalls = scanData.total_serper_calls;
+        const totalApiCalls = scanData.total_api_calls;
 
         // Update initial progress
         progressFill.style.width = '5%';
         progressText.textContent = '0%';
-        loadingMessage.textContent = `Scanning ${totalWorkUnits} locations (${totalSerperCalls} API calls)...`;
+        loadingMessage.textContent = `Scanning ${totalWorkUnits} locations (${totalApiCalls} API calls)...`;
 
         // Helper function to process results (defined before use)
         const processScanResults = (results) => {
@@ -693,8 +693,8 @@ document.getElementById('scanButton').addEventListener('click', async function (
 
                     // Build status message with real data
                     let statusMsg = `Scanning: ${statusData.completed}/${statusData.total} points`;
-                    if (statusData.completed_serper_calls && statusData.total_serper_calls) {
-                        statusMsg += ` (${statusData.completed_serper_calls}/${statusData.total_serper_calls} API calls)`;
+                    if (statusData.completed_api_calls && statusData.total_api_calls) {
+                        statusMsg += ` (${statusData.completed_api_calls}/${statusData.total_api_calls} API calls)`;
                     }
 
                     // Add ETA if available
